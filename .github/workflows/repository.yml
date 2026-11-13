@@ -1,0 +1,58 @@
+name: Repository tooling
+
+on:
+  pull_request:
+    paths:
+      [
+        "package*.json",
+        ".prettierrc.json",
+        "lefthook.yml",
+        "commitlint.config.mjs",
+        "scripts/**",
+        ".github/workflows/**",
+        "compose.yml",
+      ]
+
+  push:
+    branches: [main]
+    paths:
+      [
+        "package*.json",
+        ".prettierrc.json",
+        "lefthook.yml",
+        "commitlint.config.mjs",
+        "scripts/**",
+        ".github/workflows/**",
+        "compose.yml",
+      ]
+
+permissions:
+  contents: read
+
+jobs:
+  tooling:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: "24", cache: npm }
+
+      - run: npm ci
+
+      - run: npm run format:check
+
+      - run: npx lefthook validate
+
+      - run: docker compose config --quiet
+
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
+      - name: Validate pull request commits
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: npx commitlint --from "$BASE" --to "$HEAD" --verbose

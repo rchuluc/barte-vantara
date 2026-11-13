@@ -1,0 +1,7 @@
+spring:
+  main:
+    web-application-type: none
+  flyway:
+    enabled: true
+    placeholders:
+      appPassword: ${APP_DB_PASSWORD}

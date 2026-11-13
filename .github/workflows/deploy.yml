@@ -1,0 +1,53 @@
+name: Deploy scanned image
+
+on:
+  workflow_call:
+    inputs:
+      app: { required: true, type: string }
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: dev-${{ inputs.app }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: image-${{ inputs.app }}
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
+
+      - name: Publish immutable release
+        env:
+          APP: ${{ inputs.app }}
+          ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          ECR_URL: ${{ vars.ECR_URL }}
+        run: |
+          docker load -i image.tar.gz
+          if ! aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+            docker tag "vantara-$APP:$GITHUB_SHA" "$ECR_URL:$GITHUB_SHA"
+            docker push "$ECR_URL:$GITHUB_SHA"
+          fi
+          digest=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$GITHUB_SHA" --query 'imageDetails[0].imageDigest' --output text)
+          echo "DEPLOY_IMAGE=$ECR_URL@$digest" >> "$GITHUB_ENV"
+
+      - name: Migrate, deploy, and verify rollout
+        env:
+          APP: ${{ inputs.app }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+          MIGRATION_FAMILY: ${{ vars.MIGRATION_FAMILY }}
+          MIGRATION_NETWORK: ${{ vars.MIGRATION_NETWORK }}
+        run: python3 scripts/deploy.py

@@ -1,0 +1,19 @@
+pre-commit:
+  parallel: true
+  commands:
+    frontend:
+      glob: "apps/frontend/**"
+      run: npm --prefix apps/frontend run format:check && npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck && npm --prefix apps/frontend run test:coverage
+    formatting:
+      glob: "{.github/workflows/**,lefthook.yml,package.json,commitlint.config.mjs,.prettierrc.json}"
+      run: npm run format:check
+    backend:
+      glob: "apps/backend/**"
+      run: cd apps/backend && ./gradlew check
+    infrastructure:
+      glob: "infra/**"
+      run: terraform -chdir=infra fmt -check -recursive && npm run infra:test
+commit-msg:
+  commands:
+    semantic-commit:
+      run: npx --no-install commitlint --edit "{1}"

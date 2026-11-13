@@ -1,0 +1,107 @@
+name: App validation
+
+on:
+  workflow_call:
+    inputs:
+      app: { required: true, type: string }
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: inputs.app == 'frontend'
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        if: inputs.app == 'backend'
+        with: { distribution: temurin, java-version: "21" }
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        if: inputs.app == 'backend'
+
+      - name: Kotlin lint, integration tests, and 95% coverage
+        if: inputs.app == 'backend'
+        working-directory: apps/backend
+        run: ./gradlew check --no-daemon
+
+      - name: TypeScript lint, types, tests, and 95% coverage
+        if: inputs.app == 'frontend'
+        working-directory: apps/frontend
+        run: |
+          npm ci
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm run test:coverage
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: coverage-${{ inputs.app }}
+          path: |
+            apps/${{ inputs.app }}/coverage
+            apps/${{ inputs.app }}/build/reports
+
+  security-and-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: apps/${{ inputs.app }}
+          load: true
+          tags: vantara-${{ inputs.app }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ inputs.app }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.app }}
+
+      - name: Scan source, secrets, and container configuration
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          scan-type: fs
+          scan-ref: apps/${{ inputs.app }}
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      - name: Scan runtime image (including unfixed CVEs)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: vantara-${{ inputs.app }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          format: table
+
+      - name: Analyze image efficiency with Dive
+        env:
+          IMAGE: vantara-${{ inputs.app }}:${{ github.sha }}
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/.dive-ci:/config/.dive-ci:ro" wagoodman/dive:v0.13.1 --ci --ci-config /config/.dive-ci "$IMAGE"
+
+      - name: Save scanned image for deployment
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: vantara-${{ inputs.app }}:${{ github.sha }}
+        run: docker save "$IMAGE" | gzip > image.tar.gz
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: image-${{ inputs.app }}
+          path: image.tar.gz
+          retention-days: 2

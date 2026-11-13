@@ -1,0 +1,15 @@
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+**/.terraform/*
+*.tfstate*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+.DS_Store
+artifacts/
+__pycache__/

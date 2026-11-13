@@ -1,0 +1,83 @@
+name: vantara
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: vantara
+      POSTGRES_USER: migrator
+      POSTGRES_PASSWORD: localMigrationOnly
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5433}:5432"]
+    volumes: ["postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U migrator -d vantara"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  migrate:
+    image: vantara-backend:local
+    build: ./apps/backend
+    command: ["--spring.profiles.active=migrate"]
+    environment:
+      DB_URL: jdbc:postgresql://database:5432/vantara
+      DB_USER: migrator
+      DB_PASSWORD: localMigrationOnly
+      APP_DB_PASSWORD: localRuntimeOnly
+    depends_on:
+      database: {condition: service_healthy}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck: {disable: true}
+  backend:
+    image: vantara-backend:local
+    build: ./apps/backend
+    environment:
+      DB_URL: jdbc:postgresql://database:5432/vantara
+      DB_PASSWORD: localRuntimeOnly
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    stop_grace_period: 35s
+  frontend:
+    image: vantara-frontend:local
+    build: ./apps/frontend
+    environment:
+      BACKEND_URL: http://backend:8080
+      OTEL_TRACES_EXPORTER: none
+      OTEL_METRICS_EXPORTER: none
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      backend: {condition: service_healthy}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    stop_grace_period: 35s
+  floci:
+    image: floci/floci:2.3.0
+    ports: ["127.0.0.1:4566:4566"]
+    environment:
+      FLOCI_STORAGE_MODE: persistent
+      FLOCI_STORAGE_PERSISTENT_PATH: /app/data
+    volumes: ["floci:/app/data"]
+  s3-init:
+    image: amazon/aws-cli:2.32.0
+    user: "1000:1000"
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["aws --endpoint-url http://floci:4566 s3api head-bucket --bucket vantara-local 2>/dev/null || aws --endpoint-url http://floci:4566 s3api create-bucket --bucket vantara-local"]
+    depends_on:
+      floci: {condition: service_healthy}
+volumes:
+  postgres:
+  floci:

@@ -1,0 +1,12 @@
+region = "us-east-1"
+environment = "dev"
+github_repository = "YOUR_ORG/barte-vantara"
+github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE"
+datadog_api_key_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:datadog-REPLACE"
+backend_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/vantara-dev-backend@sha256:REPLACE"
+frontend_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/vantara-dev-frontend@sha256:REPLACE"
+budget_email = "platform@example.com"
+monthly_budget_usd = "150"
+desired_count = 1
+multi_az = false

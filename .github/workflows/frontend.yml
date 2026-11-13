@@ -1,0 +1,48 @@
+name: Frontend
+
+on:
+  pull_request:
+    paths:
+      [
+        "apps/frontend/**",
+        ".github/workflows/frontend.yml",
+        ".github/workflows/app-ci.yml",
+        ".github/workflows/deploy.yml",
+        "scripts/deploy.py",
+        ".dive-ci",
+      ]
+
+  push:
+    branches: [main]
+    paths:
+      [
+        "apps/frontend/**",
+        ".github/workflows/frontend.yml",
+        ".github/workflows/app-ci.yml",
+        ".github/workflows/deploy.yml",
+        "scripts/deploy.py",
+        ".dive-ci",
+      ]
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    uses: ./.github/workflows/app-ci.yml
+    with: { app: frontend }
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: validate
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy.yml
+    with: { app: frontend }
