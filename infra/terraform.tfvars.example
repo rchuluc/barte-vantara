@@ -1,5 +1,8 @@
 region = "us-east-1"
 environment = "dev"
+state_bucket = "YOUR_EXISTING_TERRAFORM_STATE_BUCKET"
+state_key = "vantara/dev/terraform.tfstate"
+# state_kms_key_arn = "arn:aws:kms:us-east-1:123456789012:key/REPLACE"
 github_repository = "YOUR_ORG/barte-vantara"
 github_oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
 certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE"

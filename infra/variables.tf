@@ -1,8 +1,28 @@
 variable "region" { default = "us-east-1" }
 
+variable "state_bucket" {
+  description = "Existing encrypted, versioned S3 backend bucket (bootstrapped outside this stack)."
+  type        = string
+}
+
+variable "state_key" {
+  description = "S3 state object key, also supplied to terraform init."
+  type        = string
+  default     = "vantara/dev/terraform.tfstate"
+}
+
+variable "state_kms_key_arn" {
+  description = "Optional customer-managed KMS key for the backend; null for SSE-S3."
+  type        = string
+  default     = null
+}
+
 variable "environment" { default = "dev" }
 
-variable "github_repository" { type = string }
+variable "github_repository" {
+  description = "Repository identity in the GitHub OIDC subject: ORG/REPO, or ORG@OWNER_ID/REPO@REPO_ID for immutable subjects."
+  type        = string
+}
 
 variable "certificate_arn" { type = string }
 

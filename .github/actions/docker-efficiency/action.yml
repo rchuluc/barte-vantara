@@ -1,0 +1,17 @@
+name: Docker efficiency
+description: Enforce the repository image efficiency thresholds with Dive
+inputs:
+  image:
+    description: Local image to inspect
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Inspect layers and wasted space
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+      run: |
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          -v "$PWD/.dive-ci:/config/.dive-ci:ro" \
+          wagoodman/dive:v0.13.1 --ci --ci-config /config/.dive-ci "$IMAGE"

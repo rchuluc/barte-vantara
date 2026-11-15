@@ -5,8 +5,11 @@ pre-commit:
       glob: "apps/frontend/**"
       run: npm --prefix apps/frontend run format:check && npm --prefix apps/frontend run lint && npm --prefix apps/frontend run typecheck && npm --prefix apps/frontend run test:coverage
     formatting:
-      glob: "{.github/workflows/**,lefthook.yml,package.json,commitlint.config.mjs,.prettierrc.json}"
+      glob: "{.github/**,scripts/*.mjs,lefthook.yml,package.json,commitlint.config.mjs,.prettierrc.json}"
       run: npm run format:check
+    actions:
+      glob: "{.github/**,scripts/*.mjs}"
+      run: npm run test:actions
     backend:
       glob: "apps/backend/**"
       run: cd apps/backend && ./gradlew check

@@ -1,5 +1,17 @@
 locals { name = "vantara-${var.environment}" }
 
+module "planning" {
+  source             = "./modules/planning"
+  name               = local.name
+  github_repository  = var.github_repository
+  environment        = "${var.environment}-plan"
+  oidc_provider_arn  = var.github_oidc_provider_arn
+  state_bucket       = var.state_bucket
+  state_key          = var.state_key
+  state_kms_key_arn  = var.state_kms_key_arn
+  runtime_secret_arn = module.data.runtime_secret_arn
+}
+
 module "network" {
   source = "./modules/network"
   name   = local.name
@@ -109,16 +121,16 @@ module "migration" {
 }
 
 module "delivery" {
-  for_each          = { backend = module.backend, frontend = module.frontend }
+  for_each          = toset(["backend", "frontend"])
   source            = "./modules/delivery"
   name              = "${local.name}-${each.key}"
   app               = each.key
   github_repository = var.github_repository
   environment       = var.environment
   oidc_provider_arn = var.github_oidc_provider_arn
-  repository_arn    = each.value.repository_arn
-  service_arn       = each.value.service_arn
-  task_role_arns    = concat(each.value.role_arns, each.key == "backend" ? module.migration.role_arns : [])
+  repository_arn    = each.key == "backend" ? module.backend.repository_arn : module.frontend.repository_arn
+  service_arn       = each.key == "backend" ? module.backend.service_arn : module.frontend.service_arn
+  task_role_arns    = concat(each.key == "backend" ? module.backend.role_arns : module.frontend.role_arns, each.key == "backend" ? module.migration.role_arns : [])
   cluster_arn       = aws_ecs_cluster.this.arn
   migration_family  = "${local.name}-migrate"
 }

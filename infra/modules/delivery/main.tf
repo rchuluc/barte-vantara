@@ -10,11 +10,18 @@ resource "aws_iam_role" "this" {
   }] })
 }
 
+resource "aws_iam_role_policy" "publish" {
+  name = "publish-images"
+  role = aws_iam_role.this.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+    { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages"], Resource = var.repository_arn }
+  ] })
+}
+
 resource "aws_iam_role_policy" "this" {
   role = aws_iam_role.this.id
   policy = jsonencode({ Version = "2012-10-17", Statement = concat([
-    { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
-    { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages"], Resource = var.repository_arn },
     { Effect = "Allow", Action = ["ecs:DescribeServices", "ecs:UpdateService"], Resource = var.service_arn },
     # ECS does not support resource scoping for task definition registration/description.
     { Effect = "Allow", Action = ["ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition"], Resource = "*" },

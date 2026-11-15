@@ -1,0 +1,22 @@
+name: Docker build
+description: Build and load the image that will be checked and published
+inputs:
+  app:
+    description: Application directory name
+    required: true
+  image:
+    description: Local image tag
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+    - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      with:
+        context: apps/${{ inputs.app }}
+        platforms: linux/amd64
+        load: true
+        tags: ${{ inputs.image }}
+        cache-from: type=gha,scope=${{ inputs.app }}
+        cache-to: type=gha,mode=max,scope=${{ inputs.app }}

@@ -1,0 +1,141 @@
+name: ci-infrastructure
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/ci-infrastructure.yml"
+      - ".github/actions/security/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-infrastructure-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with: { terraform_version: "1.15.7", terraform_wrapper: false }
+
+      - run: terraform -chdir=infra fmt -check -recursive
+
+      - run: terraform -chdir=infra init -backend=false -lockfile=readonly
+
+      - run: terraform -chdir=infra validate
+
+      - run: terraform -chdir=infra test
+
+      - run: terraform -chdir=infra/bootstrap init -backend=false -lockfile=readonly
+
+      - run: terraform -chdir=infra/bootstrap validate
+
+      - run: terraform -chdir=infra/bootstrap test
+
+      - uses: ./.github/actions/security
+        with: { source: infra }
+
+  plan:
+    needs: validate
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev-plan
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      brief: ${{ steps.plan.outputs.brief }}
+    env:
+      STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      STATE_KEY: ${{ vars.TF_STATE_KEY }}
+      STATE_REGION: ${{ vars.TF_STATE_REGION }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with: { terraform_version: "1.15.7", terraform_wrapper: false }
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Configure existing remote state and inputs
+        env:
+          TFVARS: ${{ secrets.TF_VARS_JSON }}
+        run: |
+          set -euo pipefail
+          : "${STATE_BUCKET:?}" "${STATE_KEY:?}" "${STATE_REGION:?}" "${TFVARS:?}"
+          umask 077
+          jq -e 'type == "object"' <<< "$TFVARS" >/dev/null
+          printf '%s' "$TFVARS" > "$RUNNER_TEMP/plan.tfvars.json"
+          # Refuse a missing state rather than reporting an accidental full-stack creation.
+          aws s3api head-object --bucket "$STATE_BUCKET" --key "$STATE_KEY" --region "$STATE_REGION" >/dev/null
+          terraform -chdir=infra init -reconfigure -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" -backend-config="key=$STATE_KEY" \
+            -backend-config="region=$STATE_REGION"
+
+      - name: Live read-only plan
+        id: plan
+        run: |
+          set -euo pipefail
+          status=0
+          terraform -chdir=infra plan -no-color -lock=false -detailed-exitcode \
+            -var-file="$RUNNER_TEMP/plan.tfvars.json" \
+            -var="state_bucket=$STATE_BUCKET" -var="state_key=$STATE_KEY" \
+            -out="$RUNNER_TEMP/plan.tfplan" > "$RUNNER_TEMP/plan.log" 2>&1 || status=$?
+          if [[ "$status" != 0 && "$status" != 2 ]]; then
+            echo 'brief=Plan failed. Inspect the protected plan job configuration and AWS permissions.' >> "$GITHUB_OUTPUT"
+            echo 'Terraform plan failed; raw output withheld because state may contain secrets.' >&2
+            exit 1
+          fi
+          terraform -chdir=infra show -json "$RUNNER_TEMP/plan.tfplan" | jq -r '
+            [.resource_changes[]?.change.actions] as $actions
+            | "brief=Plan: \([$actions[] | select(index("create"))] | length) to add, \([$actions[] | select(index("update"))] | length) to change, \([$actions[] | select(index("delete"))] | length) to destroy."
+          ' >> "$GITHUB_OUTPUT"
+
+      - name: Remove sensitive plan files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/plan.tfvars.json" "$RUNNER_TEMP/plan.tfplan" "$RUNNER_TEMP/plan.log"
+
+  report:
+    needs: [validate, plan]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Write summary
+        env:
+          VALIDATION: ${{ needs.validate.result }}
+          PLAN: ${{ needs.plan.result }}
+          BRIEF: ${{ needs.plan.outputs.brief }}
+        run: |
+          {
+            echo '### Infrastructure CI'
+            echo "Validation (format, validate, mocked tests, security): **$VALIDATION**"
+            echo "Live AWS plan (main stack): **$PLAN**"
+            echo "${BRIEF:-No plan summary available. Live plans require successful validation and a trusted same-repository PR.}"
+            echo 'Read-only speculative plan; no apply. Fork/Dependabot PRs run static validation only.'
+            echo 'Bootstrap is statically validated; its live plan uses separate operator-managed state.'
+            echo "[Workflow run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+          } | tee "$GITHUB_STEP_SUMMARY" > report.md
+
+      - uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405 # v2
+        if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+        with:
+          header: infrastructure-plan
+          path: report.md

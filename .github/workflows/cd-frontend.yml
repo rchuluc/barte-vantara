@@ -1,0 +1,91 @@
+name: cd-frontend
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches: [main]
+    paths:
+      - "apps/frontend/**"
+      - ".github/workflows/cd-frontend.yml"
+      - ".github/actions/**"
+      - ".dive-ci"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-frontend
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Formatting, lint, types, tests, and 95% coverage
+        working-directory: apps/frontend
+        run: |
+          npm ci
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm run test:coverage
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: coverage-frontend
+          path: apps/frontend/coverage
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: prod-frontend
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: ./.github/actions/docker-build
+        with:
+          app: frontend
+          image: vantara-frontend:${{ github.sha }}
+
+      - uses: ./.github/actions/security
+        with:
+          source: apps/frontend
+          image: vantara-frontend:${{ github.sha }}
+
+      - uses: ./.github/actions/docker-efficiency
+        with:
+          image: vantara-frontend:${{ github.sha }}
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: ./.github/actions/ecr-publish
+        id: publish
+        with:
+          image: vantara-frontend:${{ github.sha }}
+          repository: ${{ vars.ECR_REPOSITORY }}
+          url: ${{ vars.ECR_URL }}
+
+      - uses: ./.github/actions/ecs-deploy
+        with:
+          app: frontend
+          image: ${{ steps.publish.outputs.image }}
+          cluster: ${{ vars.ECS_CLUSTER }}
+          service: ${{ vars.ECS_SERVICE }}

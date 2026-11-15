@@ -3,7 +3,11 @@
 Modules: `network` (VPC, two public/two private subnets, restrictive SGs, S3
 gateway endpoint); `data` (private PostgreSQL 17, S3, runtime secret); `service`
 (ECR, ECS, scoped execution/task roles, health probes, Datadog); `migration`
-(one-shot privileged deployment task); `delivery` (per-app GitHub OIDC roles).
+(one-shot privileged deployment task); `delivery` (per-app GitHub OIDC roles);
+`planning` (read-only GitHub OIDC role for infrastructure plans).
+
+The standalone [`bootstrap`](bootstrap/README.md) root creates the S3 state bucket
+before the main stack initializes; it maintains separate local state.
 
 ## Static checks only
 
@@ -12,6 +16,9 @@ terraform init -backend=false
 terraform fmt -check -recursive
 terraform validate
 terraform test
+terraform -chdir=bootstrap init -backend=false -lockfile=readonly
+terraform -chdir=bootstrap validate
+terraform -chdir=bootstrap test
 trivy config --severity HIGH,CRITICAL --exit-code 1 .
 ```
 
@@ -20,7 +27,7 @@ check private/encrypted RDS, backups/deletion protection, S3 access controls,
 network isolation, Fargate sizing, ECR immutability/scanning, and rollback.
 This repository has not been applied. Provider lockfile is checked in.
 
-Three resource-local Trivy exceptions document intentional design: the public
+Resource-local Trivy exceptions document intentional design: the public
 ALB (AWS-0053), outbound TCP 443 for dynamic AWS/Datadog endpoints (AWS-0104), and
 SSE-S3 instead of a billable customer KMS key (AWS-0132). They do not suppress
 container CVEs or broadly ignore other findings. Reassess these for production.
@@ -54,10 +61,17 @@ private app subnets/NAT/endpoints according to budget and isolation requirements
 
 ## Bootstrap (operator-run, not executed here)
 
-1. Provision an encrypted, versioned remote Terraform state backend with locking
-   under your organization's controls. The local backend here is for validation
-   only. The runtime database password is sensitive but **is stored in state**;
-   configure remote state before any real apply.
+1. Create the encrypted, versioned S3 state bucket with the standalone
+   [`bootstrap` root](bootstrap/README.md), retaining its local state securely.
+   Terraform >=1.10 is required for S3 lockfiles.
+   The partial backend in `versions.tf` enables encryption and locking. Initialize
+   it with `terraform -chdir=infra init -backend-config="bucket=BUCKET"
+   -backend-config="key=vantara/dev/terraform.tfstate" -backend-config="region=us-east-1"`
+   (one command). Use matching `state_bucket` and `state_key` variables.
+   If existing state is local, use operator-reviewed `init -migrate-state` with
+   those backend arguments and retain a backup. Do not initialize an empty remote
+   state over an existing deployment. The runtime database password **is stored
+   in state**. Static checks still use `init -backend=false`.
 2. Supply the existing account GitHub OIDC provider ARN, a validated regional ACM
    certificate, and a Secrets Manager secret containing the Datadog API key as
    plain text. Use AWS-managed Secrets Manager encryption, or extend execution
@@ -65,36 +79,52 @@ private app subnets/NAT/endpoints according to budget and isolation requirements
 3. Copy `terraform.tfvars.example` to ignored `terraform.tfvars`. Bootstrap ECR
    repositories first with an operator-reviewed targeted plan for
    `module.backend.aws_ecr_repository.this` and `module.frontend.aws_ecr_repository.this`.
-   Build/scan/push initial x86_64 app images; fill in their immutable digest URLs.
+    For pipeline-built initial images, also target
+    `module.delivery["backend"].aws_iam_role_policy.publish` and
+    `module.delivery["frontend"].aws_iam_role_policy.publish`. These create the
+    OIDC roles and repository-scoped publishing permissions without ECS dependencies.
+    Configure the `prod-backend` and `prod-frontend` GitHub environments with the
+    region, role ARN, repository name, and repository URL below. Restrict them to
+    `main`. The CD workflows always check, build, scan, publish, and deploy; they
+    report immutable image digest URLs in the job summary. On a fresh environment,
+    the first run can publish images before ECS exists and fail at deployment.
+    Fill in those digest URLs in tfvars, complete the infrastructure and initial
+    migration below, then rerun the workflows to deploy.
 4. Review the full plan with `desired_count=0`, then apply it manually. This
    creates the RDS instance, task definitions and services without launching apps
    before their first migration. Configure GitHub environments below.
-5. Execute the backend deployment after CI gates pass. It runs the migration to
-   completion even at count zero. Then manually apply the intended desired count,
-   and deploy both services. Use an operator with scoped migration permissions if
-   bootstrapping before the foundation coverage gate is green; do not bypass CI.
+5. Run the initial migration with an operator using scoped migration permissions,
+   verify exit code zero, then manually apply the intended positive desired count
+   and deploy both services after CI gates pass. CD requires healthy running
+   capacity and will reject a service with desired count zero; do not bypass CI.
 6. Create DNS pointing your ACM-covered hostname to the ALB. The output ALB URL
    will not match a custom hostname certificate; use your configured hostname.
 
 ## GitHub environment configuration
 
-Create protected `dev-backend` and `dev-frontend` environments; restrict deployment
+Create protected `prod-backend` and `prod-frontend` environments; restrict deployment
 branches to `main`. Each OIDC trust policy is bound to the exact repository and
 app environment. Configure these **environment variables** (no static AWS keys):
+
+Verify `gh api repos/OWNER/REPO/actions/oidc/customization/sub` before applying
+roles. Set `github_repository` to the returned `sub_claim_prefix` without `repo:`
+when immutable subjects are enabled (for example, `OWNER@123/REPO@456`); otherwise
+use `OWNER/REPO`. Both deployment and planning trust policies use this identity.
 
 | Variable | Value |
 |---|---|
 | AWS_REGION | Terraform region |
 | AWS_DEPLOY_ROLE_ARN | app's `deploy_role_arns` output |
-| ECR_REPOSITORY | `vantara-dev-backend` or `vantara-dev-frontend` |
+| ECR_REPOSITORY | `vantara-prod-backend` or `vantara-prod-frontend` |
 | ECR_URL | app's `repositories` output |
 | ECS_CLUSTER | `cluster` output |
-| ECS_SERVICE | `vantara-dev-backend` or `vantara-dev-frontend` |
-| MIGRATION_FAMILY | backend only: `vantara-dev-migrate` |
+| ECS_SERVICE | `vantara-prod-backend` or `vantara-prod-frontend` |
+| MIGRATION_FAMILY | backend only: `vantara-prod-migrate` |
 | MIGRATION_NETWORK | backend only: JSON from `terraform output -json migration_network` |
 
-The workflow loads the image artifact already scanned by CI, pushes the SHA tag,
-resolves its ECR digest, registers a task revision, and waits for service stability.
+Each CD workflow runs application checks, builds an amd64 image, runs Trivy and
+Dive, then publishes that exact local image using a unique SHA/run/attempt tag.
+It resolves the ECR digest, registers a task revision, and waits for service stability.
 Backend deployment first registers/runs the migration image at the same digest;
 nonzero/missing exit status blocks rollout. Circuit-breaker rollback is checked
 explicitly rather than treating an old stable revision as successful deployment.
@@ -108,6 +138,47 @@ apply the infrastructure then explicitly update the service to the new Terraform
 task revision, or use that new revision as the deployment template. Otherwise a
 CI deployment based on the running revision retains the previous configuration.
 Migrations are expand/contract; ECS rollback never undoes committed SQL changes.
+
+## Live infrastructure PR plans
+
+Bootstrap/apply the `planning` module with an operator before enabling live plans.
+Create a **protected `dev-plan` environment with required reviewers**; review the
+PR's Terraform and workflow changes before approving its job. Its OIDC trust is
+bound to that environment, not to the app deployment environments. Access to state
+and the managed runtime secret exposes database credentials, so only trusted PR
+code may receive this role. Fork and Dependabot PRs never assume it.
+
+Configure these variables in `dev-plan`:
+
+| Variable | Value |
+|---|---|
+| AWS_REGION | Infrastructure AWS region |
+| AWS_PLAN_ROLE_ARN | `plan_role_arn` Terraform output |
+| TF_STATE_BUCKET | Existing S3 state bucket, matching `state_bucket` |
+| TF_STATE_KEY | Existing default-workspace state object key, matching `state_key` |
+| TF_STATE_REGION | State bucket's region |
+
+Set environment secret `TF_VARS_JSON` to the full deployment variable map in JSON
+(the values from your real tfvars, including current image digests and sizing).
+The workflow explicitly supplies `state_bucket` and `state_key` from the backend
+variables. For SSE-KMS state, set `state_kms_key_arn` to grant scoped decrypt access;
+the KMS key policy must also permit the role. This workflow uses the default
+Terraform workspace only.
+
+The plan role can read infrastructure metadata, the exact state object, and the
+runtime secret version Terraform manages. It cannot apply, publish images, deploy
+services, or write state. PR plans use `-lock=false` to keep the role read-only;
+they are speculative and may race operator changes. Operators must create a fresh
+locked plan before applying. The workflow refuses missing state, treats exit 2
+as a successful plan with changes, and fails on plan errors.
+
+The sticky PR comment reports validation and plan status plus resource action
+counts (replacements count as both add and destroy). Raw plans, state, and input
+values are neither posted nor uploaded; temporary plan files are removed. Errors
+fail the job without printing potentially sensitive provider diagnostics. Inspect
+permissions/configuration or reproduce the plan as an authorized operator to debug.
+Validation failures still receive a comment. Fork/Dependabot PRs get a job summary
+without a comment because their tokens are read-only.
 
 ## Datadog and logging
 

@@ -10,6 +10,7 @@ on:
         "commitlint.config.mjs",
         "scripts/**",
         ".github/workflows/**",
+        ".github/actions/**",
         "compose.yml",
       ]
 
@@ -23,6 +24,7 @@ on:
         "commitlint.config.mjs",
         "scripts/**",
         ".github/workflows/**",
+        ".github/actions/**",
         "compose.yml",
       ]
 
@@ -48,7 +50,7 @@ jobs:
 
       - run: docker compose config --quiet
 
-      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - run: npm run test:actions
 
       - name: Validate pull request commits
         if: github.event_name == 'pull_request'

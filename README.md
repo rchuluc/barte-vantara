@@ -68,11 +68,20 @@ layout/instrumentation. CI/deployment also requires the security checks to pass.
 - [Engineering and Conventional Commit rules](AGENTS.md)
 - [Executed checks, coverage results and DoD](docs/verification.md)
 
-App workflows filter by their own app directory; a frontend-only change does not
-validate/deploy backend, or vice versa. Shared workflow changes deliberately
-validate both apps. Infrastructure is statically tested separately, never applied
-by CI. CI runs lint/types/tests, Trivy source/config/image scans and Dive, saves
-the scanned image, and deploys that image by digest with GitHub OIDC.
+`ci-frontend` and `ci-backend` run path-filtered PR checks: formatting,
+lint/types/tests, 95% coverage, Trivy source/image scans, and Dive efficiency.
+`cd-frontend` and `cd-backend` run on app-related pushes to `main`, repeat the
+quality gates, build/check/publish the same image to ECR, and deploy its digest
+to ECS through GitHub OIDC. Shared composite actions live in `.github/actions`.
+Changes to those actions validate both apps; app-only changes stay scoped.
+The repository tooling workflow checks formatting, commits, and mocked AWS CLI
+deployment tests (`npm run test:actions`).
+
+`ci-infrastructure` runs Terraform validation, mocked tests, security scans,
+and a live read-only AWS plan for trusted PRs, posting a sticky summary of
+validation and add/change/destroy counts. Configure the `dev-plan` environment
+and S3 backend as described in [the infrastructure guide](infra/README.md).
+Fork/Dependabot PRs receive static checks and a job summary only. CI never applies.
 
 Both ECS services have container health checks, init processes, non-root app
 users, read-only root filesystems, graceful termination, and deployment rollback.

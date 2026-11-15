@@ -1,0 +1,39 @@
+name: Publish checked image
+description: Publish the local checked image and return its immutable ECR digest
+inputs:
+  image:
+    description: Local checked image
+    required: true
+  repository:
+    description: ECR repository name
+    required: true
+  url:
+    description: ECR repository URL
+    required: true
+outputs:
+  image:
+    description: Published digest URL
+    value: ${{ steps.publish.outputs.image }}
+runs:
+  using: composite
+  steps:
+    - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2
+
+    - name: Publish immutable release
+      id: publish
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        ECR_REPOSITORY: ${{ inputs.repository }}
+        ECR_URL: ${{ inputs.url }}
+      run: |
+        set -euo pipefail
+        # Each rerun publishes its own checked build; never reuse an unscanned old SHA tag.
+        tag="$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+        docker tag "$IMAGE" "$ECR_URL:$tag"
+        docker push "$ECR_URL:$tag"
+        digest=$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" \
+          --image-ids imageTag="$tag" --query 'imageDetails[0].imageDigest' --output text)
+        [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+        echo "image=$ECR_URL@$digest" >> "$GITHUB_OUTPUT"
+        echo "Published image: $ECR_URL@$digest" >> "$GITHUB_STEP_SUMMARY"
