@@ -94,6 +94,10 @@ function mockAws() {
     process.exit(255);
   } else if (op === "describe-services") {
     const updated = fs.existsSync(process.env.UPDATED);
+    const reads = fs
+      .readFileSync(process.env.CALLS, "utf8")
+      .split("\n")
+      .filter((line) => line.includes('"describe-services"')).length;
     const revision = updated && scenario !== "rollback" ? "new" : "old";
     result = {
       services: [
@@ -106,7 +110,10 @@ function mockAws() {
             {
               taskDefinition: revision,
               rolloutState:
-                scenario === "incomplete" ? "IN_PROGRESS" : "COMPLETED",
+                scenario === "incomplete" ||
+                (scenario === "late-completion" && reads < 4)
+                  ? "IN_PROGRESS"
+                  : "COMPLETED",
             },
           ],
         },
@@ -121,6 +128,7 @@ function mockAws() {
 for (const app of ["frontend", "backend"]) {
   const scenarios = [
     "success",
+    "late-completion",
     "rollback",
     "zero-capacity",
     "incomplete",
@@ -133,6 +141,9 @@ for (const app of ["frontend", "backend"]) {
     test(`${app}: ${scenario}`, () => {
       const dir = mkdtempSync(join(tmpdir(), "actions-test-"));
       try {
+        writeFileSync(join(dir, "sleep"), "#!/bin/sh\nexit 0\n", {
+          mode: 0o755,
+        });
         writeFileSync(
           join(dir, "aws"),
           `#!${process.execPath}\n(${mockAws.toString()})();`,
@@ -167,7 +178,7 @@ for (const app of ["frontend", "backend"]) {
         );
         assert.equal(
           result.status === 0,
-          scenario === "success",
+          ["success", "late-completion"].includes(scenario),
           result.stdout + result.stderr,
         );
         const calls = readFileSync(join(dir, "calls"), "utf8")

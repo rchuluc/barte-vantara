@@ -71,6 +71,16 @@ runs:
         aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
           --task-definition "$revision" >/dev/null
         aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+        # The AWS waiter checks capacity, not rolloutState; COMPLETED can lag behind it.
+        for attempt in {1..12}; do
+          after=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --output json)
+          jq -e --arg revision "$revision" '
+            ((.failures // []) | length) == 0 and (.services | length) == 1
+            and (.services[0] | .taskDefinition == $revision and .desiredCount > 0
+              and any(.deployments[]; .taskDefinition == $revision and .rolloutState == "IN_PROGRESS"))
+          ' <<< "$after" >/dev/null || break
+          sleep 5
+        done
         after=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --output json)
         jq -e --arg revision "$revision" '
           ((.failures // []) | length) == 0 and (.services | length) == 1
