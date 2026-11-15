@@ -89,6 +89,7 @@ module "backend" {
     DB_URL                          = "jdbc:postgresql://${module.data.endpoint}/vantara?sslmode=require"
     DB_USER                         = "app_user"
     AWS_REGION                      = var.region
+    INGESTION_BUCKET                = module.data.ingestion_bucket_name
     COGNITO_POOL_ID                 = module.identity.pool_id
     COGNITO_CLIENT_ID               = module.identity.client_id
     COGNITO_MCP_CLIENT_ID           = module.identity.mcp_client_id
@@ -98,7 +99,7 @@ module "backend" {
   }
   cognito_pool_arn = module.identity.pool_arn
   secrets          = { DB_PASSWORD = module.data.runtime_secret_arn }
-  bucket_arn       = module.data.bucket_arn
+  bucket_arn       = module.data.ingestion_bucket_arn
 }
 
 module "frontend" {

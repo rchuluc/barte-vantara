@@ -51,6 +51,767 @@ class UserManagementTests {
     private val json = JsonMapper.builder().build()
 
     @Test
+    fun `pagination rejects both limits outside the supported range`() {
+        val token = login("ar")
+        val id = body(upload(token, "pagination.csv", "Name,Due,Total\nA,2026-07-20,1\n"), 201)["id"].asText()
+        for (path in listOf("/imports?limit=0", "/imports/$id/rows?limit=0", "/imports/$id/results?limit=501")) {
+            assertEquals(400, request("GET", path, token).statusCode(), path)
+        }
+        assertEquals(1, body(request("GET", "/imports/$id/rows?limit=1", token)).size())
+    }
+
+    @Test
+    fun `Protheus explicit single unit mapping does not create source named units`() {
+        val token = login("ar")
+        val name = "Ignored-${UUID.randomUUID()}"
+        val csv =
+            "cliente;cnpj;unidade;documento;nosso_numero;tipo;emissao;vencimento;valor;status\n" +
+                "Acme;;$name;F1;0001;Produto;01/07/2026;20/07/2026;1,00;Aberto\n"
+        val id = body(upload(token, "single-unit.csv", csv), 201)["id"].asText()
+        val mapping = """{"unitId":"$unit","columns":{"party_name":"cliente","due_on":"vencimento","amount":"valor"}}"""
+        body(request("POST", "/imports/$id/confirm", token, mapping))
+        assertEquals(0, body(request("POST", "/imports/$id/process", token))["rejected"].asInt())
+        assertEquals(unit.toString(), body(request("GET", "/imports/$id/results", token))[0]["unit_id"].asText())
+        assertEquals(0, owner.queryForObject("SELECT count(*) FROM finance.business_unit WHERE name=?", Int::class.java, name))
+    }
+
+    @Test
+    fun `idempotency key cannot switch datasets even when caller has both permissions`() {
+        val token = login("ar")
+        val member = owner.queryForObject("SELECT id FROM finance.membership WHERE email='ar@vantara.com.br'", UUID::class.java)!!
+        owner.update("INSERT INTO finance.member_role VALUES (?,?,'ap')", tenant, member)
+        try {
+            val id = body(upload(token, "same.csv", "Name\nA\n"), 201)["id"].asText()
+            val response =
+                http.send(
+                    HttpRequest
+                        .newBuilder(URI("http://localhost:$port/api/imports?filename=same.csv&kind=payable"))
+                        .header("Authorization", "Bearer $token")
+                        .header("Idempotency-Key", id)
+                        .POST(HttpRequest.BodyPublishers.ofString("Name\nB\n"))
+                        .build(),
+                    HttpResponse.BodyHandlers.ofString(),
+                )
+            assertEquals(409, response.statusCode())
+            assertEquals("receivable", body(request("GET", "/imports/$id", token))["dataset_kind"].asText())
+            assertEquals("Name\nA\n", request("GET", "/imports/$id/file", token).body())
+        } finally {
+            owner.update("DELETE FROM finance.member_role WHERE member_id=? AND role='ap'", member)
+        }
+    }
+
+    @Test
+    fun `oversized upload fails before storage and leaves a discoverable failed job`() {
+        val token = login("ar")
+        val id = UUID.randomUUID()
+        val path = Files.createTempFile("oversized-import-", ".csv")
+        try {
+            java.io.RandomAccessFile(path.toFile(), "rw").use { it.setLength(100L * 1024 * 1024 + 1) }
+            val response =
+                http.send(
+                    HttpRequest
+                        .newBuilder(URI("http://localhost:$port/api/imports?filename=oversized.csv&kind=receivable"))
+                        .header("Authorization", "Bearer $token")
+                        .header("Idempotency-Key", id.toString())
+                        .POST(HttpRequest.BodyPublishers.ofFile(path))
+                        .build(),
+                    HttpResponse.BodyHandlers.ofString(),
+                )
+            assertEquals(413, response.statusCode())
+            val job = body(request("GET", "/imports/$id", token))
+            assertEquals("failed", job["state"].asText())
+            assertTrue(job["object_version"].isNull)
+            assertEquals(0, job["total"].asInt())
+            assertEquals(409, request("GET", "/imports/$id/file", token).statusCode())
+        } finally {
+            Files.delete(path)
+        }
+    }
+
+    @Test
+    fun `malformed worksheet XML and oversized parts retain evidence without staging rows`() {
+        val token = login("ar")
+        val original = java.io.ByteArrayOutputStream()
+        org.apache.poi.xssf.usermodel.XSSFWorkbook().use { workbook ->
+            workbook
+                .createSheet()
+                .createRow(0)
+                .createCell(0)
+                .setCellValue("Name")
+            workbook.write(original)
+        }
+        val malformed = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(malformed).use { output ->
+            java.util.zip.ZipInputStream(original.toByteArray().inputStream()).use { input ->
+                while (true) {
+                    val entry = input.nextEntry ?: break
+                    output.putNextEntry(java.util.zip.ZipEntry(entry.name))
+                    if (entry.name ==
+                        "xl/worksheets/sheet1.xml"
+                    ) {
+                        output.write("<worksheet><broken>".toByteArray())
+                    } else {
+                        input.copyTo(output)
+                    }
+                    output.closeEntry()
+                }
+            }
+        }
+        assertEquals(400, uploadBytes(token, "malformed-xml.xlsx", malformed.toByteArray()).statusCode())
+        val missingManifest = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(missingManifest).use { output ->
+            output.putNextEntry(java.util.zip.ZipEntry("report.txt"))
+            output.write("Not an OOXML workbook".toByteArray())
+            output.closeEntry()
+        }
+        assertEquals(400, uploadBytes(token, "missing-manifest.xlsx", missingManifest.toByteArray()).statusCode())
+        val oversized = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(oversized).use { output ->
+            output.putNextEntry(java.util.zip.ZipEntry("xl/worksheets/sheet1.xml"))
+            val block = ByteArray(65536)
+            repeat(4096) { output.write(block) }
+            output.write(0)
+            output.closeEntry()
+        }
+        assertEquals(400, uploadBytes(token, "oversized-part.xlsx", oversized.toByteArray()).statusCode())
+        val id = body(request("GET", "/imports", token))[0]["id"].asText()
+        assertEquals("failed", body(request("GET", "/imports/$id", token))["state"].asText())
+        assertEquals(0, body(request("GET", "/imports/$id/rows", token)).size())
+        assertEquals(200, request("GET", "/imports/$id/file", token).statusCode())
+    }
+
+    @Test
+    fun `explicit unit mappings preserve known destinations and reject unmapped rows`() {
+        val token = login("ar")
+        val id =
+            body(
+                upload(
+                    token,
+                    "units.csv",
+                    "Name,Due,Total,Unit\nMapped,2026-07-20,1,known\nUnmapped,2026-07-20,1,missing\nBlank,2026-07-20,1,\n",
+                ),
+                201,
+            )["id"].asText()
+        body(
+            request(
+                "POST",
+                "/imports/$id/confirm",
+                token,
+                """{"units":{"known":"$unit"},"columns":{"party_name":"Name","due_on":"Due","amount":"Total","unit":"Unit"}}""",
+            ),
+        )
+        assertEquals(2, body(request("POST", "/imports/$id/process", token))["rejected"].asInt())
+        assertEquals(
+            400,
+            request(
+                "PATCH",
+                "/imports/$id/rows/3",
+                token,
+                json.writeValueAsString(listOf("x".repeat(16385), "2026-07-20", "1", "known")),
+            ).statusCode(),
+        )
+        val header = "cliente;cnpj;unidade;documento;nosso_numero;tipo;emissao;vencimento;valor;status\n"
+        val protheus =
+            body(
+                upload(token, "mapped.csv", header + "Acme;;Unit;F1;0001;Produto;01/07/2026;20/07/2026;1,00;Aberto\n"),
+                201,
+            )["id"].asText()
+        body(request("POST", "/imports/$protheus/confirm", token, "{}"))
+        val second =
+            body(
+                upload(token, "mapped2.csv", header + "Acme;;Alias;F1;0001;Produto;01/07/2026;20/07/2026;1,00;Aberto\n"),
+                201,
+            )["id"].asText()
+        body(request("POST", "/imports/$second/confirm", token, """{"units":{"Alias":"$unit"}}"""))
+        val many =
+            body(
+                upload(
+                    token,
+                    "many.csv",
+                    header + (1..1001).joinToString("\n") { "Acme;;U$it;F1;0001;Produto;01/07/2026;20/07/2026;1,00;Aberto" },
+                ),
+                201,
+            )["id"].asText()
+        assertEquals(400, request("POST", "/imports/$many/confirm", token, "{}").statusCode())
+    }
+
+    @Test
+    fun `manual bank mapping validates direction account currency and missing fields`() {
+        val token = login("reconciliation")
+        val id =
+            body(
+                upload(
+                    token,
+                    "custom-bank.csv",
+                    "Date,Text,Amount,Direction\n2026-07-20,Incoming,1,credit\n2026-07-20,Outgoing,2,debit\n2026-07-20,Bad,3,other\n2026-07-20,,4,C\n",
+                    "bank",
+                ),
+                201,
+            )["id"].asText()
+        val columns = """"columns":{"booking_date":"Date","description":"Text","amount":"Amount","direction":"Direction"}"""
+        assertEquals(
+            403,
+            request(
+                "POST",
+                "/imports/$id/confirm",
+                token,
+                """{"unitId":"$unit","accountId":"${UUID.randomUUID()}",$columns}""",
+            ).statusCode(),
+        )
+        body(request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit","accountId":"$account",$columns}"""))
+        assertEquals(2, body(request("POST", "/imports/$id/process", token))["rejected"].asInt())
+        assertEquals(2, body(request("GET", "/imports/$id/results", token)).size())
+    }
+
+    @Test
+    fun `idempotency conflicts empty datasets and mismatched profiles are explicit`() {
+        val token = login("ar")
+        assertEquals(400, upload(token, "", "Name").statusCode())
+        assertEquals(400, upload(token, "x".repeat(201) + ".csv", "Name").statusCode())
+        val id = body(upload(token, "headers.csv", "Name,Due,Total\n"), 201)["id"].asText()
+        val columns = """"columns":{"party_name":"Name","due_on":"Due","amount":"Total"}"""
+        assertEquals(
+            400,
+            request(
+                "POST",
+                "/imports/$id/confirm",
+                token,
+                """{"unitId":"$unit","columns":{"party_name":"Name","due_on":"Due","amount":"Total","unknown":"Name"}}""",
+            ).statusCode(),
+        )
+        for (query in listOf("filename=other.csv&kind=receivable", "filename=headers.csv&kind=payable")) {
+            val response =
+                http.send(
+                    HttpRequest
+                        .newBuilder(URI("http://localhost:$port/api/imports?$query"))
+                        .header(
+                            "Authorization",
+                            "Bearer $token",
+                        ).header("Idempotency-Key", id)
+                        .POST(HttpRequest.BodyPublishers.ofString("Name"))
+                        .build(),
+                    HttpResponse.BodyHandlers.ofString(),
+                )
+            // AR cannot use payable scope, even for an existing idempotency key.
+            assertEquals(if (query.contains("payable")) 403 else 409, response.statusCode())
+        }
+        owner.update("UPDATE finance.ingestion SET state='failed' WHERE id=?", UUID.fromString(id))
+        assertEquals(409, request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit",$columns}""").statusCode())
+        body(request("POST", "/imports/$id/prepare", token))
+        body(request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit",$columns}"""))
+        assertEquals("completed", body(request("POST", "/imports/$id/process", token))["state"].asText())
+        val bank = body(upload(token, "mismatch.csv", "data;historico;documento;valor;tipo\n20/07/2026;X;;1,00;C\n"), 201)["id"].asText()
+        assertEquals(400, request("POST", "/imports/$bank/confirm", token, """{"unitId":"$unit"}""").statusCode())
+        val payable =
+            body(
+                upload(
+                    login("ap"),
+                    "mismatch.csv",
+                    "customer_name,tax_id,invoice_ref,due_date,amount,paid_flag\nA,,F1,2026-07-20,1,N\n",
+                    "payable",
+                ),
+                201,
+            )["id"].asText()
+        assertEquals(400, request("POST", "/imports/$payable/confirm", login("ap"), """{"unitId":"$unit"}""").statusCode())
+    }
+
+    @Test
+    fun `unversioned storage fails closed and incomplete originals cannot be downloaded or prepared`() {
+        val token = login("ar")
+        s3.putBucketVersioning { it.bucket("vantara-ingestion-local").versioningConfiguration { c -> c.status("Suspended") } }
+        try {
+            assertEquals(503, upload(token, "unversioned.csv", "Name\nValue\n").statusCode())
+            val id = body(request("GET", "/imports", token))[0]["id"].asText()
+            assertEquals(409, request("GET", "/imports/$id/file", token).statusCode())
+            assertEquals(409, request("POST", "/imports/$id/prepare", token).statusCode())
+        } finally {
+            s3.putBucketVersioning { it.bucket("vantara-ingestion-local").versioningConfiguration { c -> c.status("Enabled") } }
+        }
+    }
+
+    @Test
+    fun `sparse and 1904 XLSX retains dates precision and zero padded identifiers`() {
+        val token = login("ar")
+        val output = java.io.ByteArrayOutputStream()
+        org.apache.poi.xssf.usermodel.XSSFWorkbook().use { workbook ->
+            workbook.ctWorkbook.workbookPr.date1904 = true
+            val sheet = workbook.createSheet()
+            val headers = listOf("Name", "Due", "Total", "Ref", "Optional")
+            headers.forEachIndexed { i, value ->
+                sheet.getRow(0)?.createCell(i)?.setCellValue(value)
+                    ?: sheet.createRow(0).createCell(i).setCellValue(value)
+            }
+            val row = sheet.createRow(1)
+            row.createCell(0).setCellValue("Customer")
+            row.createCell(1).apply {
+                setCellValue(
+                    org.apache.poi.ss.usermodel.DateUtil
+                        .getExcelDate(java.time.LocalDate.of(2026, 7, 20), true),
+                )
+                cellStyle = workbook.createCellStyle().apply { dataFormat = workbook.createDataFormat().getFormat("dd/mm/yyyy") }
+            }
+            row.createCell(2).apply {
+                setCellValue(12.34)
+                cellStyle = workbook.createCellStyle().apply { dataFormat = workbook.createDataFormat().getFormat("0000000") }
+            }
+            row.createCell(3).apply {
+                setCellValue(123.0)
+                cellStyle = workbook.createCellStyle().apply { dataFormat = workbook.createDataFormat().getFormat("0000000") }
+            }
+            workbook.write(output)
+        }
+        val response = uploadBytes(token, "date.xlsx", output.toByteArray())
+        val id = body(response, 201)["id"].asText()
+        body(
+            request(
+                "POST",
+                "/imports/$id/confirm",
+                token,
+                """{"unitId":"$unit","columns":{"party_name":"Name","due_on":"Due","amount":"Total","external_id":"Ref"}}""",
+            ),
+        )
+        body(request("POST", "/imports/$id/process", token))
+        val result = body(request("GET", "/imports/$id/results", token))[0]
+        assertEquals("2026-07-20", result["due_on"].asText())
+        assertEquals("0000123", result["external_id"].asText())
+        assertEquals(1234, result["original_amount_minor"].asInt())
+    }
+
+    @Test
+    fun `unsupported workbook layouts and malformed archives never reach financial processing`() {
+        val token = login("ar")
+        for (variant in listOf("empty", "multiple", "wide", "long-cell")) {
+            val output = java.io.ByteArrayOutputStream()
+            org.apache.poi.xssf.usermodel.XSSFWorkbook().use { workbook ->
+                if (variant != "empty") {
+                    val sheet = workbook.createSheet()
+                    val row = sheet.createRow(0)
+                    row.createCell(0).setCellValue("Name")
+                    if (variant == "multiple") workbook.createSheet()
+                    if (variant == "wide") row.createCell(100).setCellValue("Too wide")
+                    if (variant == "long-cell") sheet.createRow(1).createCell(0).setCellValue("x".repeat(16385))
+                }
+                workbook.write(output)
+            }
+            assertEquals(400, uploadBytes(token, "$variant.xlsx", output.toByteArray()).statusCode(), variant)
+        }
+        assertEquals(400, uploadBytes(token, "broken.xlsx", "not a zip".toByteArray()).statusCode())
+        val bomb = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(bomb).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("xl/sharedStrings.xml"))
+            val block = ByteArray(65536) { 65 }
+            repeat(257) { zip.write(block) }
+            zip.closeEntry()
+        }
+        assertEquals(400, uploadBytes(token, "oversized.xlsx", bomb.toByteArray()).statusCode())
+        assertEquals(400, upload(token, "wide.csv", (0..100).joinToString(",") { "H$it" }).statusCode())
+    }
+
+    private fun uploadBytes(
+        token: String,
+        filename: String,
+        bytes: ByteArray,
+    ): HttpResponse<String> =
+        http.send(
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port/api/imports?filename=$filename&kind=receivable"))
+                .header("Authorization", "Bearer $token")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(bytes))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+
+    @Test
+    fun `manual import validates financial values and retains independent row errors`() {
+        val token = login("ap")
+        val csv =
+            "Name,Due,Value,Tax,Status,Issued\n" +
+                "Valid,2026-07-20,5.01,12345678901,disputed,2026-07-01\n" +
+                "Cancelled,2026-07-20,1.00,,cancelled,\n" +
+                "Missing,,1.00,,open,\n" +
+                "Zero,2026-07-20,0,,open,\n" +
+                "Negative,2026-07-20,-1,,open,\n" +
+                "Precision,2026-07-20,1.001,,open,\n" +
+                "Overflow,2026-07-20,999999999999999999999999,,open,\n" +
+                "Tax,2026-07-20,1,abc,open,\n" +
+                "Status,2026-07-20,1,,mystery,\n" +
+                "Short,2026-07-20\n"
+        val id = body(upload(token, "manual.csv", csv, "payable"), 201)["id"].asText()
+        body(
+            request(
+                "POST",
+                "/imports/$id/confirm",
+                token,
+                """{"unitId":"$unit","currency":"USD","dateFormat":"uuuu-MM-dd","decimal":".","columns":{"party_name":"Name","due_on":"Due","amount":"Value","party_tax_id":"Tax","status":"Status","issued_on":"Issued"}}""",
+            ),
+        )
+        val result = body(request("POST", "/imports/$id/process", token))
+        assertEquals(8, result["rejected"].asInt())
+        assertEquals(2, body(request("GET", "/imports/$id/results", token)).size())
+        assertEquals(501L, body(request("GET", "/imports/$id/results", token))[0]["original_amount_minor"].asLong())
+    }
+
+    @Test
+    fun `upload and mapping reject malformed requests before financial writes`() {
+        val token = login("ar")
+        for ((name, csv) in listOf(
+            "bad.txt" to "text",
+            "empty.csv" to "",
+            "bad.csv" to "Name,Name\nx,y\n",
+            "blank.csv" to ",Due\nx,y\n",
+            "broken.csv" to "Name,Due,Total\n\"unclosed",
+            "large-cell.csv" to "Name\n${"x".repeat(16385)}",
+        )) {
+            assertEquals(400, upload(token, name, csv).statusCode(), name)
+        }
+        assertEquals(400, upload(token, "x.csv", "Name\nx", "invalid").statusCode())
+        val id = body(upload(token, "valid.csv", "Name,Due,Total\nAcme,2026-07-20,1.00\n"), 201)["id"].asText()
+        for (suffix in listOf("/rows?after=-1", "/rows?limit=501", "/results?after=-1", "/results?limit=0")) {
+            assertEquals(400, request("GET", "/imports/$id$suffix", token).statusCode())
+        }
+        assertEquals(400, request("GET", "/imports?offset=-1", token).statusCode())
+        assertEquals(400, request("GET", "/imports?limit=101", token).statusCode())
+        assertEquals(400, request("PATCH", "/imports/$id/rows/2", token, "[]").statusCode())
+        assertEquals(409, request("PATCH", "/imports/$id/rows/2", token, """["A","2026-07-20","2"]""").statusCode())
+        val columns = """"columns":{"party_name":"Name","due_on":"Due","amount":"Total"}"""
+        for (payload in listOf(
+            "{}",
+            """{$columns}""",
+            """{"unitId":"$unit",$columns,"decimal":";"}""",
+            """{"unitId":"$unit",$columns,"dateFormat":"MM/dd/yyyy"}""",
+            """{"unitId":"$unit",$columns,"currency":"JPY"}""",
+            """{"unitId":"$unit","columns":{"party_name":"Unknown","due_on":"Due","amount":"Total"}}""",
+        )) {
+            assertEquals(400, request("POST", "/imports/$id/confirm", token, payload).statusCode(), payload)
+        }
+        assertEquals(403, request("POST", "/imports/$id/confirm", token, """{"unitId":"$otherUnit",$columns}""").statusCode())
+        body(request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit",$columns}"""))
+        assertEquals(409, request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit",$columns,"currency":"EUR"}""").statusCode())
+        body(request("POST", "/imports/$id/prepare", token))
+        for (method in listOf("GET", "POST")) {
+            val path = if (method == "GET") "/imports/${UUID.randomUUID()}" else "/imports/${UUID.randomUUID()}/process"
+            assertEquals(404, request(method, path, token).statusCode())
+        }
+    }
+
+    @Test
+    fun `XLSX bank dates and Brazilian formatted amounts import without losing cents`() {
+        val token = login("reconciliation")
+        val output = java.io.ByteArrayOutputStream()
+        org.apache.poi.xssf.usermodel.XSSFWorkbook().use { workbook ->
+            val sheet = workbook.createSheet("Statement")
+            val header = sheet.createRow(0)
+            listOf("data", "historico", "documento", "valor", "tipo").forEachIndexed {
+                i,
+                value,
+                ->
+                header.createCell(i).setCellValue(value)
+            }
+            val row = sheet.createRow(1)
+            row.createCell(0).apply {
+                setCellValue(java.time.LocalDate.of(2026, 7, 20))
+                cellStyle = workbook.createCellStyle().apply { dataFormat = workbook.createDataFormat().getFormat("dd/mm/yyyy") }
+            }
+            row.createCell(1).setCellValue("Payment")
+            row.createCell(2).setCellValue("0000123")
+            row.createCell(3).apply {
+                setCellValue(18450.01)
+                cellStyle = workbook.createCellStyle().apply { dataFormat = workbook.createDataFormat().getFormat("#,##0") }
+            }
+            row.createCell(4).setCellValue("C")
+            workbook.write(output)
+        }
+        val response =
+            http.send(
+                HttpRequest
+                    .newBuilder(URI("http://localhost:$port/api/imports?filename=statement.xlsx&kind=bank"))
+                    .header("Authorization", "Bearer $token")
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(output.toByteArray()))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+        val id = body(response, 201)["id"].asText()
+        body(request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit","accountId":"$account"}"""))
+        assertEquals(0, body(request("POST", "/imports/$id/process", token))["rejected"].asInt())
+        assertEquals(1845001L, body(request("GET", "/imports/$id/results", token))[0]["amount_minor"].asLong())
+    }
+
+    @Test
+    fun `upload retries recover original job and preparation resumes persisted evidence`() {
+        val token = login("ar")
+        val id = UUID.randomUUID()
+        val csv = "Name,Due,Total\nCustomer,2026-07-20,2.00\n"
+
+        fun send(): HttpResponse<String> =
+            http.send(
+                HttpRequest
+                    .newBuilder(URI("http://localhost:$port/api/imports?filename=retry.csv&kind=receivable"))
+                    .header("Authorization", "Bearer $token")
+                    .header("Idempotency-Key", id.toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(csv))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+        val first = body(send(), 201)
+        assertEquals(id.toString(), first["id"].asText())
+        assertEquals(first["object_version"], body(send(), 201)["object_version"])
+        // Simulate a process stopping after persistence but before preparation completed.
+        owner.update("UPDATE finance.ingestion SET state='uploading' WHERE id=?", id)
+        assertEquals("mapping", body(request("POST", "/imports/$id/prepare", token))["state"].asText())
+        assertEquals(1, body(request("GET", "/imports/$id/rows", token)).size())
+        assertTrue(body(request("GET", "/imports", token)).any { it["id"].asText() == id.toString() })
+    }
+
+    @Test
+    fun `rejected rows can be corrected without rewriting original evidence`() {
+        val token = login("ar")
+        val csv = "Name,Due,Total\nBroken,2026-02-30,5.00\n"
+        val id = body(upload(token, "fix.csv", csv), 201)["id"].asText()
+        body(
+            request(
+                "POST",
+                "/imports/$id/confirm",
+                token,
+                """{"unitId":"$unit","columns":{"party_name":"Name","due_on":"Due","amount":"Total"}}""",
+            ),
+        )
+        body(request("POST", "/imports/$id/process", token))
+        body(request("PATCH", "/imports/$id/rows/2", token, """["Broken","2026-02-28","5.00"]"""))
+        val done = body(request("POST", "/imports/$id/process", token))
+        assertEquals(0, done["rejected"].asInt())
+        assertEquals(1, done["processed"].asInt())
+        assertEquals(csv, request("GET", "/imports/$id/file", token).body())
+        assertEquals("2026-02-30", body(request("GET", "/imports/$id/rows", token))[0]["cells"][1].asText())
+        assertEquals(409, request("PATCH", "/imports/$id/rows/2", token, """["Changed","2026-02-28","6.00"]""").statusCode())
+    }
+
+    @Test
+    fun `Itau imports credit and debit evidence and revocation immediately blocks original and rows`() {
+        val token = login("reconciliation")
+        val csv =
+            Files.readString(
+                java.nio.file.Path
+                    .of("../../data_pack/03_extrato_bancario_jul2026.csv"),
+            )
+        val uploaded = body(upload(token, "bank.csv", csv, "bank"), 201)
+        val id = uploaded["id"].asText()
+        assertEquals("itau", uploaded["platform"].asText())
+        assertEquals(403, request("POST", "/imports/$id/confirm", token, """{"unitId":"$otherUnit","accountId":"$account"}""").statusCode())
+        assertEquals(400, request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit"}""").statusCode())
+        body(request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit","accountId":"$account"}"""))
+        val done = body(request("POST", "/imports/$id/process", token))
+        assertEquals(0, done["rejected"].asInt())
+        val entries = body(request("GET", "/imports/$id/results", token))
+        assertEquals(18, entries.size())
+        assertEquals("debit", entries[5]["direction"].asText())
+        assertEquals(124000L, entries[5]["amount_minor"].asLong())
+        assertEquals("000012345678", entries[0]["external_ref"].asText())
+        assertEquals(403, upload(login("ar"), "bank.csv", csv, "bank").statusCode())
+        val member =
+            owner.queryForObject(
+                "SELECT id FROM finance.membership WHERE email='reconciliation@vantara.com.br'",
+                UUID::class.java,
+            )!!
+        owner.update("DELETE FROM finance.member_bank_account WHERE member_id=? AND account_id=?", member, account)
+        try {
+            for (suffix in listOf(
+                "",
+                "/file",
+                "/rows",
+                "/results",
+            )) {
+                assertEquals(404, request("GET", "/imports/$id$suffix", token).statusCode())
+            }
+        } finally {
+            owner.update("INSERT INTO finance.member_bank_account VALUES (?,?,?,?)", tenant, member, unit, account)
+        }
+    }
+
+    @Test
+    fun `custom CSV uses bounded resumable chunks and keeps manual mapping explicit`() {
+        val token = login("ar")
+        val csv =
+            buildString {
+                append("Name,Due,Total\n")
+                repeat(10001) { append("\"Customer, $it\",2026-07-20,1.23\n") }
+            }
+        val id = body(upload(token, "manual.csv", csv), 201)["id"].asText()
+        assertEquals(409, request("POST", "/imports/$id/process", token).statusCode())
+        val mapping = """{"unitId":"$unit","columns":{"party_name":"Name","due_on":"Due","amount":"Total"}}"""
+        body(request("POST", "/imports/$id/confirm", token, mapping))
+        val first = body(request("POST", "/imports/$id/process", token))
+        assertEquals(500, first["processed"].asInt())
+        assertEquals("processing", first["state"].asText())
+        repeat(20) { body(request("POST", "/imports/$id/process", token)) }
+        val done = body(request("GET", "/imports/$id", token))
+        assertEquals(10001, done["processed"].asInt())
+        assertEquals(0, done["rejected"].asInt())
+        assertEquals("completed", done["state"].asText())
+        assertEquals(1, body(request("GET", "/imports/$id/results?after=10001", token)).size())
+        assertEquals(123, body(request("GET", "/imports/$id/results?limit=1", token))[0]["original_amount_minor"].asInt())
+    }
+
+    @Test
+    fun `XLSX custom reports preview mapping and import quoted values`() {
+        val path = Files.createTempFile("report", ".xlsx")
+        java.util.zip.ZipOutputStream(Files.newOutputStream(path)).use { zip ->
+            fun entry(
+                name: String,
+                text: String,
+            ) {
+                zip.putNextEntry(java.util.zip.ZipEntry(name))
+                zip.write(text.toByteArray())
+                zip.closeEntry()
+            }
+            entry(
+                "[Content_Types].xml",
+                """<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>""",
+            )
+            entry(
+                "_rels/.rels",
+                """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>""",
+            )
+            entry(
+                "xl/workbook.xml",
+                """<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>""",
+            )
+            entry(
+                "xl/_rels/workbook.xml.rels",
+                """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>""",
+            )
+            entry(
+                "xl/worksheets/sheet1.xml",
+                """<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Name</t></is></c><c r="B1" t="inlineStr"><is><t>Due</t></is></c><c r="C1" t="inlineStr"><is><t>Total</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>Manual customer</t></is></c><c r="B2" t="inlineStr"><is><t>2026-07-20</t></is></c><c r="C2"><v>12.34</v></c></row></sheetData></worksheet>""",
+            )
+        }
+        try {
+            val token = login("ar")
+            val request =
+                HttpRequest
+                    .newBuilder(URI("http://localhost:$port/api/imports?filename=manual.xlsx&kind=receivable"))
+                    .header("Authorization", "Bearer $token")
+                    .header("Content-Type", "application/octet-stream")
+                    .POST(HttpRequest.BodyPublishers.ofFile(path))
+                    .build()
+            val imported = body(http.send(request, HttpResponse.BodyHandlers.ofString()), 201)
+            val id = imported["id"].asText()
+            assertEquals("custom", imported["platform"].asText())
+            assertEquals(400, this.request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit"}""").statusCode())
+            body(
+                this.request(
+                    "POST",
+                    "/imports/$id/confirm",
+                    token,
+                    """{"unitId":"$unit","columns":{"party_name":"Name","due_on":"Due","amount":"Total"}}""",
+                ),
+            )
+            body(this.request("POST", "/imports/$id/process", token))
+            assertEquals(1234L, body(this.request("GET", "/imports/$id/results", token))[0]["original_amount_minor"].asLong())
+        } finally {
+            Files.delete(path)
+        }
+    }
+
+    @Test
+    fun `Protheus routes units creates missing units and keeps source identifiers`() {
+        val token = login("ar")
+        val csv =
+            Files.readString(
+                java.nio.file.Path
+                    .of("../../data_pack/01_contas_a_receber_protheus_jul2026.csv"),
+            )
+        val id = body(upload(token, "ar.csv", csv), 201)["id"].asText()
+        assertEquals("protheus", body(request("GET", "/imports/$id", token))["platform"].asText())
+        body(request("POST", "/imports/$id/confirm", token, "{}"))
+        assertEquals(0, body(request("POST", "/imports/$id/process", token))["rejected"].asInt())
+        val results = body(request("GET", "/imports/$id/results", token))
+        assertEquals(12, results.size())
+        assertEquals(1845000L, results[0]["original_amount_minor"].asLong())
+        assertEquals("000012345678", results[0]["external_id"].asText())
+        assertEquals(
+            5,
+            results
+                .toList()
+                .map { it["unit_id"].asText() }
+                .distinct()
+                .size,
+        )
+        body(request("POST", "/imports/$id/confirm", token, "{}"))
+    }
+
+    @Test
+    fun `Omie confirmation imports valid titles and preserves row errors with retry safety`() {
+        val token = login("ar")
+        val csv =
+            "customer_name,tax_id,invoice_ref,due_date,amount,paid_flag\n" +
+                "ACME,00123456000100,F1,2026-07-20,31250.00,N\nBad,,F2,2026-02-30,10.00,N\nPaid,,F3,2026-07-20,10.00,Y\n"
+        val id = body(upload(token, "any.csv", csv), 201)["id"].asText()
+        val confirm = """{"unitId":"$unit"}"""
+        assertEquals("processing", body(request("POST", "/imports/$id/confirm", token, confirm))["state"].asText())
+        val result = body(request("POST", "/imports/$id/process", token))
+        assertEquals("completed", result["state"].asText())
+        assertEquals(3, result["processed"].asInt())
+        assertEquals(2, result["rejected"].asInt())
+        val rows = body(request("GET", "/imports/$id/rows", token))
+        assertEquals("accepted", rows[0]["state"].asText())
+        assertEquals("rejected", rows[1]["state"].asText())
+        assertTrue(rows[2]["error"].asText().contains("settlement"))
+        val titles = body(request("GET", "/imports/$id/results", token))
+        assertEquals(1, titles.size())
+        assertEquals(3125000L, titles[0]["original_amount_minor"].asLong())
+        assertEquals("00123456000100", titles[0]["party_tax_id"].asText())
+        body(request("POST", "/imports/$id/process", token))
+        body(request("POST", "/imports/$id/confirm", token, confirm))
+        assertEquals(1, body(request("GET", "/imports/$id/results", token)).size())
+    }
+
+    @Test
+    fun `structured upload detects Omie persists original in Floci and isolates file access`() {
+        val token = login("ar")
+        val csv =
+            Files.readString(
+                java.nio.file.Path
+                    .of("../../data_pack/02_titulos_unidade_norte_omie_jul2026.csv"),
+            )
+        val uploaded = body(upload(token, "report.csv", csv), 201)
+        val id = uploaded["id"].asText()
+        assertEquals("omie", uploaded["platform"].asText())
+        assertEquals("mapping", uploaded["state"].asText())
+        assertEquals(5, uploaded["total"].asInt())
+        assertEquals(csv, request("GET", "/imports/$id/file", token).body())
+        assertEquals(404, request("GET", "/imports/$id", login("ap")).statusCode())
+        assertEquals(404, request("GET", "/imports/$id/file", login("admin")).statusCode())
+        assertEquals(401, upload(null, "report.csv", csv).statusCode())
+        assertEquals(403, upload(login("fpa"), "report.csv", csv).statusCode())
+    }
+
+    private fun upload(
+        token: String?,
+        filename: String,
+        content: String,
+        kind: String = "receivable",
+    ): HttpResponse<String> {
+        val builder =
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port/api/imports?filename=$filename&kind=$kind"))
+                .header("Content-Type", "application/octet-stream")
+        token?.let { builder.header("Authorization", "Bearer $it") }
+        return http.send(builder.POST(HttpRequest.BodyPublishers.ofString(content)).build(), HttpResponse.BodyHandlers.ofString())
+    }
+
+    @Test
+    fun `business units can be registered without granting access to existing restricted units`() {
+        val token = login()
+        val name = "New-${UUID.randomUUID()}"
+        val created = body(request("POST", "/business-units", token, """{"name":"$name"}"""), 201)
+        assertEquals(name, created["name"].asText())
+        assertTrue(body(request("GET", "/business-units", token)).any { it["id"] == created["id"] })
+        assertEquals(409, request("POST", "/business-units", token, """{"name":"Other"}""").statusCode())
+        assertEquals(403, request("POST", "/business-units", login("fpa"), """{"name":"Forbidden"}""").statusCode())
+        assertEquals(400, request("POST", "/business-units", token, """{"name":" "}""").statusCode())
+    }
+
+    @Test
     fun `tenant branding is public but provisioning never accepts tenant administrator tokens`() {
         assertEquals(200, request("GET", "/tenants").statusCode())
         for (token in listOf(null, login())) {
@@ -408,6 +1169,15 @@ class UserManagementTests {
                 start()
             }
         private val endpoint = "http://${floci.host}:${floci.getMappedPort(4566)}"
+        private val s3 =
+            software.amazon.awssdk.services.s3.S3Client
+                .builder()
+                .endpointOverride(URI(endpoint))
+                .forcePathStyle(true)
+                .region(
+                    Region.US_EAST_1,
+                ).credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
+                .build()
         private val cognito =
             CognitoIdentityProviderClient
                 .builder()
@@ -426,6 +1196,8 @@ class UserManagementTests {
         private val rogueClient: String
 
         init {
+            s3.createBucket { it.bucket("vantara-ingestion-local") }
+            s3.putBucketVersioning { it.bucket("vantara-ingestion-local").versioningConfiguration { c -> c.status("Enabled") } }
             System.setProperty("aws.accessKeyId", "test")
             System.setProperty("aws.secretAccessKey", "test")
             Flyway
@@ -470,6 +1242,7 @@ class UserManagementTests {
             registry.add("spring.datasource.password") { "testRuntimePassword" }
             config.forEach { (key, value) -> registry.add(key.toString()) { value } }
             registry.add("cognito.endpoint") { endpoint }
+            registry.add("ingestion.endpoint") { endpoint }
             registry.add("cognito.mcp-client-id") { mcpClient }
         }
     }

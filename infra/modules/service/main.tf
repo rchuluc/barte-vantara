@@ -45,7 +45,7 @@ resource "aws_iam_role_policy" "storage" {
   role  = aws_iam_role.task.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["s3:ListBucket"], Resource = var.bucket_arn },
-    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${var.bucket_arn}/*" }
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"], Resource = "${var.bucket_arn}/*" }
   ] })
 }
 

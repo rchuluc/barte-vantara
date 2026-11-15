@@ -34,6 +34,12 @@ dependencies {
         exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
     }
     implementation("software.amazon.awssdk:url-connection-client")
+    implementation("software.amazon.awssdk:s3") {
+        exclude(group = "software.amazon.awssdk", module = "apache5-client")
+        exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
+    }
+    implementation("org.apache.commons:commons-csv:1.14.1")
+    implementation("org.apache.poi:poi-ooxml:5.5.1")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")

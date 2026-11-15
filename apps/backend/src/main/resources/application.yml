@@ -32,6 +32,10 @@ logging:
     format:
       console: logstash
 
+ingestion:
+  bucket: ${INGESTION_BUCKET:vantara-ingestion-local}
+  endpoint: ${INGESTION_ENDPOINT:}
+
 cognito:
   region: ${AWS_REGION:us-east-1}
   pool-id: ${COGNITO_POOL_ID:unconfigured}

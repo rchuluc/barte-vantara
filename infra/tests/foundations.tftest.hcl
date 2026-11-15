@@ -4,6 +4,16 @@ mock_provider "random" {}
 run "private_encrypted_database_and_storage" {
   command = plan
   module { source = "./modules/data" }
+
+  override_resource {
+    target          = aws_s3_bucket.ingestion
+    override_during = plan
+    values = {
+      id  = "vantara-test-ingestion"
+      arn = "arn:aws:s3:::vantara-test-ingestion"
+    }
+  }
+
   variables {
     name                     = "vantara-test"
     vpc_id                   = "vpc-0123456789abcdef0"
@@ -26,6 +36,26 @@ run "private_encrypted_database_and_storage" {
   assert {
     condition     = random_password.runtime.length >= 32 && !random_password.runtime.special
     error_message = "Runtime password must be strong and safe for migration placeholders."
+  }
+
+  assert {
+    condition     = aws_s3_bucket_versioning.ingestion.versioning_configuration[0].status == "Enabled" && !aws_s3_bucket.ingestion.force_destroy
+    error_message = "Ingestion evidence must retain immutable object versions and prevent forced deletion."
+  }
+
+  assert {
+    condition     = aws_s3_bucket_public_access_block.ingestion.block_public_acls && aws_s3_bucket_public_access_block.ingestion.block_public_policy && aws_s3_bucket_public_access_block.ingestion.ignore_public_acls && aws_s3_bucket_public_access_block.ingestion.restrict_public_buckets
+    error_message = "Ingestion originals must never be public."
+  }
+
+  assert {
+    condition     = length(one(aws_s3_bucket_lifecycle_configuration.ingestion.rule).noncurrent_version_expiration) == 0 && length(one(aws_s3_bucket_lifecycle_configuration.ingestion.rule).expiration) == 0
+    error_message = "Evidence lifecycle must not expire original or referenced versions."
+  }
+
+  assert {
+    condition     = one(aws_s3_bucket_server_side_encryption_configuration.ingestion.rule).apply_server_side_encryption_by_default[0].sse_algorithm == "AES256" && jsondecode(aws_s3_bucket_policy.ingestion_tls.policy).Statement[0].Condition.Bool["aws:SecureTransport"] == "false"
+    error_message = "Evidence must be encrypted at rest and restricted to TLS transport."
   }
 }
 
@@ -128,5 +158,10 @@ run "backend_service" {
   assert {
     condition     = jsondecode(aws_iam_role_policy.identity[0].policy).Statement[0].Resource == var.cognito_pool_arn && length(jsondecode(aws_iam_role_policy.identity[0].policy).Statement[0].Action) == 3
     error_message = "Runtime Cognito mutations must be limited to its own user pool and the three required provisioning operations."
+  }
+
+  assert {
+    condition     = toset(jsondecode(aws_iam_role_policy.storage[0].policy).Statement[1].Action) == toset(["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"]) && jsondecode(aws_iam_role_policy.storage[0].policy).Statement[1].Resource == "${var.bucket_arn}/*"
+    error_message = "Backend must read recorded versions without permission to delete evidence."
   }
 }

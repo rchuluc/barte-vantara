@@ -36,6 +36,8 @@ services:
       DB_URL: jdbc:postgresql://database:5432/vantara
       DB_PASSWORD: localRuntimeOnly
       COGNITO_ENDPOINT: http://floci:4566
+      INGESTION_ENDPOINT: http://floci:4566
+      INGESTION_BUCKET: vantara-ingestion-local
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       SPRING_CONFIG_IMPORT: optional:file:/auth/cognito.properties
@@ -44,6 +46,7 @@ services:
     depends_on:
       migrate: {condition: service_completed_successfully}
       seed: {condition: service_completed_successfully}
+      s3-init: {condition: service_completed_successfully}
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -81,7 +84,13 @@ services:
       AWS_SECRET_ACCESS_KEY: test
       AWS_DEFAULT_REGION: us-east-1
     entrypoint: ["/bin/sh", "-ec"]
-    command: ["aws --endpoint-url http://floci:4566 s3api head-bucket --bucket vantara-local 2>/dev/null || aws --endpoint-url http://floci:4566 s3api create-bucket --bucket vantara-local"]
+    command:
+      - |
+        aws --endpoint-url http://floci:4566 s3api head-bucket --bucket vantara-local 2>/dev/null || aws --endpoint-url http://floci:4566 s3api create-bucket --bucket vantara-local
+        aws --endpoint-url http://floci:4566 s3api head-bucket --bucket vantara-ingestion-local 2>/dev/null || aws --endpoint-url http://floci:4566 s3api create-bucket --bucket vantara-ingestion-local
+        aws --endpoint-url http://floci:4566 s3api put-bucket-versioning --bucket vantara-ingestion-local --versioning-configuration Status=Enabled
+        aws --endpoint-url http://floci:4566 s3api put-public-access-block --bucket vantara-ingestion-local --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+        aws --endpoint-url http://floci:4566 s3api put-bucket-encryption --bucket vantara-ingestion-local --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
     depends_on:
       floci: {condition: service_healthy}
   seed:

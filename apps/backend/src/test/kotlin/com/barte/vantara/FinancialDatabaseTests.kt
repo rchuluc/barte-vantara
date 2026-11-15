@@ -12,6 +12,59 @@ import java.sql.SQLException
 
 class FinancialDatabaseTests {
     @Test
+    fun `ingestion RLS protects staged files rows scopes and audit from other identities`() {
+        session("ar", "a") { connection ->
+            connection.createStatement().execute(
+                "INSERT INTO finance.ingestion (tenant_id,id,filename,dataset_kind,object_key) VALUES (md5('a')::uuid,md5('upload')::uuid,'original.csv','receivable','a/original')",
+            )
+            connection.createStatement().execute(
+                "INSERT INTO finance.ingestion_row (tenant_id,ingestion_id,row_number,cells) VALUES (md5('a')::uuid,md5('upload')::uuid,2,'[\"private\"]')",
+            )
+            connection.createStatement().execute(
+                "UPDATE finance.ingestion_row SET state='rejected',error='test' WHERE ingestion_id=md5('upload')::uuid",
+            )
+            assertEquals(1, count(connection, "finance.ingestion"))
+            assertDenied(connection, "UPDATE finance.ingestion SET object_key='another-tenant/file'")
+            assertDenied(connection, "UPDATE finance.ingestion_row SET cells='[]'")
+            assertDenied(
+                connection,
+                "INSERT INTO finance.ingestion_scope VALUES (md5('a')::uuid,md5('upload')::uuid,md5('a-other')::uuid,NULL)",
+            )
+            assertDenied(
+                connection,
+                "INSERT INTO finance.ingestion (tenant_id,id,filename,dataset_kind,object_key) VALUES (md5('b')::uuid,gen_random_uuid(),'x','receivable','x')",
+            )
+            connection.createStatement().execute(
+                "INSERT INTO finance.ingestion_scope VALUES (md5('a')::uuid,md5('upload')::uuid,md5('a-unit')::uuid,NULL)",
+            )
+            identity(connection, "admin")
+            for (table in listOf("ingestion", "ingestion_row", "ingestion_scope")) assertEquals(0, count(connection, "finance.$table"))
+            assertEquals(0, count(connection, "finance.audit_detail WHERE table_name IN ('ingestion','ingestion_row')"))
+            assertDenied(
+                connection,
+                "INSERT INTO finance.ingestion_row (tenant_id,ingestion_id,row_number,cells) VALUES (md5('a')::uuid,md5('upload')::uuid,3,'[]')",
+            )
+            assertDenied(
+                connection,
+                "INSERT INTO finance.ingestion (tenant_id,id,filename,dataset_kind,object_key) VALUES (md5('a')::uuid,gen_random_uuid(),'x','receivable','x')",
+            )
+        }
+    }
+
+    @Test
+    fun `unit registration cannot adopt an existing hidden unit or mint foreign tenant scope`() {
+        session("ar", "a") { connection ->
+            connection.createStatement().execute("SELECT finance.register_unit(md5('a')::uuid, 'New unit')")
+            assertEquals(2, count(connection, "finance.business_unit"))
+            assertDenied(connection, "SELECT finance.register_unit(md5('b')::uuid, 'Foreign')")
+            assertDenied(connection, "SELECT finance.register_unit(md5('a')::uuid, '')")
+            assertDenied(connection, "SELECT finance.register_unit(md5('a')::uuid, 'New unit')")
+            identity(connection, "fpa")
+            assertDenied(connection, "SELECT finance.register_unit(md5('a')::uuid, 'Forbidden')")
+        }
+    }
+
+    @Test
     fun `bank account revocation hides entries raw evidence allocations and audit payloads`() {
         session("reconciliation", "a") { connection ->
             assertEquals(1, count(connection, "finance.bank_account"))
@@ -115,7 +168,7 @@ class FinancialDatabaseTests {
                     .dataSource(database.jdbcUrl, "migration_owner", "migrationTestOnly")
                     .placeholders(mapOf("appPassword" to "testRuntimePassword"))
                     .load()
-            assertEquals(7, flyway.migrate().migrationsExecuted)
+            assertEquals(9, flyway.migrate().migrationsExecuted)
             assertEquals(0, flyway.migrate().migrationsExecuted)
             DriverManager.getConnection(database.jdbcUrl, "app_user", "testRuntimePassword").use { connection ->
                 assertEquals(0, count(connection, "finance.title"))
