@@ -142,13 +142,13 @@ Migrations are expand/contract; ECS rollback never undoes committed SQL changes.
 ## Live infrastructure PR plans
 
 Bootstrap/apply the `planning` module with an operator before enabling live plans.
-Create a **protected `dev-plan` environment with required reviewers**; review the
+Create a **protected `prod-plan` environment with required reviewers**; review the
 PR's Terraform and workflow changes before approving its job. Its OIDC trust is
 bound to that environment, not to the app deployment environments. Access to state
 and the managed runtime secret exposes database credentials, so only trusted PR
 code may receive this role. Fork and Dependabot PRs never assume it.
 
-Configure these variables in `dev-plan`:
+Configure these variables in `prod-plan`:
 
 | Variable | Value |
 |---|---|
