@@ -1,5 +1,11 @@
 locals { name = "vantara-${var.environment}" }
 
+module "identity" {
+  source            = "./modules/identity"
+  name              = local.name
+  mcp_callback_urls = var.mcp_callback_urls
+}
+
 module "planning" {
   source             = "./modules/planning"
   name               = local.name
@@ -60,28 +66,37 @@ resource "aws_lb_listener" "http" {
 }
 
 module "backend" {
-  source                = "./modules/service"
-  name                  = "${local.name}-backend"
-  app                   = "backend"
-  image                 = var.backend_image
-  task_size             = var.backend_task_size
-  port                  = 8080
-  health_path           = "/api/health"
-  health_command        = ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
-  cluster_id            = aws_ecs_cluster.this.id
-  vpc_id                = module.network.vpc_id
-  subnet_ids            = module.network.public_subnet_ids
-  security_group_id     = module.network.backend_security_group_id
-  namespace_id          = aws_service_discovery_private_dns_namespace.this.id
-  region                = var.region
-  environment           = var.environment
-  desired_count         = var.desired_count
-  datadog_image         = var.datadog_image
-  datadog_site          = var.datadog_site
-  datadog_secret_arn    = var.datadog_api_key_secret_arn
-  environment_variables = { DB_URL = "jdbc:postgresql://${module.data.endpoint}/vantara?sslmode=require", DB_USER = "app_user" }
-  secrets               = { DB_PASSWORD = module.data.runtime_secret_arn }
-  bucket_arn            = module.data.bucket_arn
+  source             = "./modules/service"
+  name               = "${local.name}-backend"
+  app                = "backend"
+  image              = var.backend_image
+  task_size          = var.backend_task_size
+  port               = 8080
+  health_path        = "/api/health"
+  health_command     = ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
+  cluster_id         = aws_ecs_cluster.this.id
+  vpc_id             = module.network.vpc_id
+  subnet_ids         = module.network.public_subnet_ids
+  security_group_id  = module.network.backend_security_group_id
+  namespace_id       = aws_service_discovery_private_dns_namespace.this.id
+  region             = var.region
+  environment        = var.environment
+  desired_count      = var.desired_count
+  datadog_image      = var.datadog_image
+  datadog_site       = var.datadog_site
+  datadog_secret_arn = var.datadog_api_key_secret_arn
+  environment_variables = {
+    DB_URL                = "jdbc:postgresql://${module.data.endpoint}/vantara?sslmode=require"
+    DB_USER               = "app_user"
+    AWS_REGION            = var.region
+    COGNITO_POOL_ID       = module.identity.pool_id
+    COGNITO_CLIENT_ID     = module.identity.client_id
+    COGNITO_MCP_CLIENT_ID = module.identity.mcp_client_id
+    COGNITO_ISSUER        = module.identity.issuer
+  }
+  cognito_pool_arn = module.identity.pool_arn
+  secrets          = { DB_PASSWORD = module.data.runtime_secret_arn }
+  bucket_arn       = module.data.bucket_arn
 }
 
 module "frontend" {

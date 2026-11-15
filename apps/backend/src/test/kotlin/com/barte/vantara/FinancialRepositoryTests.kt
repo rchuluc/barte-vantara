@@ -43,10 +43,21 @@ class FinancialRepositoryTests {
         assertThrows(SourceConflict::class.java) {
             store.transaction(context("reconciliation")) { it.ingest(record.copy(datasetKind = "payable", category = "payable")) }
         }
-        val bank = record.copy(artifactRef = "bank-conflict", datasetKind = "bank", category = "incoming_bank")
+        val bank = record.copy(artifactRef = "bank-conflict", datasetKind = "bank", category = "incoming_bank", accountId = id("account"))
         store.transaction(context("reconciliation")) { it.ingest(bank) }
         assertThrows(SourceConflict::class.java) {
             store.transaction(context("reconciliation")) { it.ingest(bank.copy(category = "bank")) }
+        }
+        assertThrows(FinanceStorageFailure::class.java) {
+            store.transaction(context("reconciliation")) { it.ingest(bank.copy(accountId = id("account-denied"))) }
+        }
+        DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
+            connection.createStatement().execute(
+                "INSERT INTO finance.member_bank_account VALUES (md5('a')::uuid, md5('a-reconciliation')::uuid, md5('a-unit')::uuid, md5('account-denied')::uuid)",
+            )
+        }
+        assertThrows(SourceConflict::class.java) {
+            store.transaction(context("reconciliation")) { it.ingest(bank.copy(accountId = id("account-denied"))) }
         }
         assertThrows(FinanceStorageFailure::class.java) {
             store.transaction(context("ar")) { it.ingest(record.copy(contractVersion = 2)) }

@@ -112,6 +112,7 @@ run "backend_service" {
     environment_variables = { DB_USER = "app_user" }
     secrets               = { DB_PASSWORD = "arn:aws:secretsmanager:us-east-1:123456789012:secret:database-123456" }
     bucket_arn            = "arn:aws:s3:::vantara-test"
+    cognito_pool_arn      = "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test"
   }
 
   assert {
@@ -122,5 +123,10 @@ run "backend_service" {
   assert {
     condition     = aws_ecs_service.this.name == "vantara-test-backend" && length(aws_ecs_service.this.load_balancer) == 0 && length(aws_ecs_service.this.service_registries) == 1
     error_message = "Backend must have its own private service with service discovery."
+  }
+
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.identity[0].policy).Statement[0].Resource == var.cognito_pool_arn && length(jsondecode(aws_iam_role_policy.identity[0].policy).Statement[0].Action) == 3
+    error_message = "Runtime Cognito mutations must be limited to its own user pool and the three required provisioning operations."
   }
 }

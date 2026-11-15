@@ -12,6 +12,66 @@ import java.sql.SQLException
 
 class FinancialDatabaseTests {
     @Test
+    fun `bank account revocation hides entries raw evidence allocations and audit payloads`() {
+        session("reconciliation", "a") { connection ->
+            assertEquals(1, count(connection, "finance.bank_account"))
+            proposal(connection, "account-revocation")
+            allocation(connection, "account-revocation", "bela", "bela-bank", 100)
+            identity(connection, "admin")
+            assertEquals(
+                1,
+                connection.createStatement().executeUpdate(
+                    "DELETE FROM finance.member_bank_account WHERE member_id = md5('a-reconciliation')::uuid",
+                ),
+            )
+            identity(connection, "reconciliation")
+            for (table in listOf("bank_account", "bank_entry", "bank_balance", "allocation", "reconciliation_decision")) {
+                assertEquals(0, count(connection, "finance.$table"), table)
+            }
+            assertEquals(0, count(connection, "finance.source_record WHERE dataset_kind = 'bank'"))
+            assertEquals(0, count(connection, "finance.audit_detail WHERE category IN ('bank', 'incoming_bank', 'reconcile')"))
+            assertDenied(
+                connection,
+                "INSERT INTO finance.member_bank_account VALUES (md5('a')::uuid, md5('a-reconciliation')::uuid, md5('a-unit')::uuid, md5('account')::uuid)",
+            )
+            assertDenied(connection, reviewSql("account-revocation"))
+        }
+    }
+
+    @Test
+    fun `technical admins cannot expand their own authority or delegate units they do not manage`() {
+        session("admin", "a") { connection ->
+            assertDenied(connection, "INSERT INTO finance.member_role VALUES (md5('a')::uuid, md5('a-admin')::uuid, 'ap')")
+            assertDenied(connection, "INSERT INTO finance.member_unit VALUES (md5('a')::uuid, md5('a-ap')::uuid, md5('a-other')::uuid)")
+            assertDenied(
+                connection,
+                "INSERT INTO finance.approval_scope VALUES (md5('a')::uuid, md5('a-admin')::uuid, md5('a-unit')::uuid, 'approve_payable')",
+            )
+            assertEquals(
+                0,
+                connection.createStatement().executeUpdate("DELETE FROM finance.member_role WHERE member_id = md5('a-admin')::uuid"),
+            )
+            assertEquals(1, count(connection, "finance.business_unit"))
+            assertEquals(0, count(connection, "finance.bank_entry"))
+            assertEquals(0, count(connection, "finance.title"))
+        }
+    }
+
+    @Test
+    fun `AR can propose incoming matches but cannot approve them and controllership cannot create AP drafts`() {
+        session("ar", "a") { connection ->
+            proposal(connection, "ar-proposal")
+            allocation(connection, "ar-proposal", "bela", "bela-bank", 100)
+            assertDenied(connection, reviewSql("ar-proposal"))
+            identity(connection, "controllership")
+            assertEquals(
+                0,
+                connection.createStatement().executeUpdate("UPDATE finance.title SET current_amount_minor = 1 WHERE direction = 'payable'"),
+            )
+        }
+    }
+
+    @Test
     fun `approval rejects a payable changed after submission and ignores message approval text`() {
         session("ap", "a") { connection ->
             assertEquals(0, count(connection, "finance.payable_review"))
@@ -55,7 +115,7 @@ class FinancialDatabaseTests {
                     .dataSource(database.jdbcUrl, "migration_owner", "migrationTestOnly")
                     .placeholders(mapOf("appPassword" to "testRuntimePassword"))
                     .load()
-            assertEquals(5, flyway.migrate().migrationsExecuted)
+            assertEquals(6, flyway.migrate().migrationsExecuted)
             assertEquals(0, flyway.migrate().migrationsExecuted)
             DriverManager.getConnection(database.jdbcUrl, "app_user", "testRuntimePassword").use { connection ->
                 assertEquals(0, count(connection, "finance.title"))

@@ -8,5 +8,6 @@ class BackendApplication
 
 fun main(args: Array<String>) {
     val context = runApplication<BackendApplication>(*args)
-    if (context.environment.activeProfiles.contains("migrate")) context.close()
+    val profiles = context.environment.activeProfiles
+    if ("migrate" in profiles || "seed" in profiles) context.close()
 }

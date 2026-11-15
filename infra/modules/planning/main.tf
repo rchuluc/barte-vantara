@@ -30,6 +30,8 @@ resource "aws_iam_role_policy" "this" {
           "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
           "servicediscovery:GetNamespace", "servicediscovery:GetService", "servicediscovery:ListTagsForResource",
           "secretsmanager:DescribeSecret", "secretsmanager:ListSecretVersionIds",
+          "cognito-idp:DescribeUserPool", "cognito-idp:DescribeUserPoolClient",
+          "cognito-idp:DescribeUserPoolDomain", "cognito-idp:ListTagsForResource",
           "budgets:ViewBudget", "budgets:Describe*", "budgets:ListTagsForResource",
           "s3:GetBucket*", "s3:GetEncryptionConfiguration", "s3:GetLifecycleConfiguration",
           "s3:GetAccelerateConfiguration", "s3:GetReplicationConfiguration",

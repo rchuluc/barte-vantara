@@ -35,9 +35,15 @@ services:
     environment:
       DB_URL: jdbc:postgresql://database:5432/vantara
       DB_PASSWORD: localRuntimeOnly
+      COGNITO_ENDPOINT: http://floci:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      SPRING_CONFIG_IMPORT: optional:file:/auth/cognito.properties
+    volumes: ["auth:/auth:ro"]
     ports: ["127.0.0.1:8080:8080"]
     depends_on:
       migrate: {condition: service_completed_successfully}
+      seed: {condition: service_completed_successfully}
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -78,6 +84,27 @@ services:
     command: ["aws --endpoint-url http://floci:4566 s3api head-bucket --bucket vantara-local 2>/dev/null || aws --endpoint-url http://floci:4566 s3api create-bucket --bucket vantara-local"]
     depends_on:
       floci: {condition: service_healthy}
+  seed:
+    image: vantara-backend:local
+    build: ./apps/backend
+    command: ["--spring.profiles.active=seed"]
+    environment:
+      DB_URL: jdbc:postgresql://database:5432/vantara
+      DB_USER: migrator
+      DB_PASSWORD: localMigrationOnly
+      COGNITO_ENDPOINT: http://floci:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    volumes: ["auth:/auth"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      floci: {condition: service_healthy}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck: {disable: true}
 volumes:
   postgres:
   floci:
+  auth:

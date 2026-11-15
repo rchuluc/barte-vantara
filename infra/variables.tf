@@ -66,3 +66,9 @@ variable "github_oidc_provider_arn" {
   description = "Existing account-level GitHub OIDC provider; create once outside this stack."
   type        = string
 }
+
+variable "mcp_callback_urls" {
+  description = "Registered HTTPS callback URLs for delegated MCP OIDC; empty until a connection is configured."
+  type        = list(string)
+  default     = []
+}

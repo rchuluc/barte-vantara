@@ -22,6 +22,7 @@ data class IngestionRecord(
     val category: String,
     val locator: String,
     val rawText: String,
+    val accountId: UUID? = null,
 )
 
 data class TitlePosition(

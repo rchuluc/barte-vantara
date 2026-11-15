@@ -31,3 +31,12 @@ logging:
   structured:
     format:
       console: logstash
+
+cognito:
+  region: ${AWS_REGION:us-east-1}
+  pool-id: ${COGNITO_POOL_ID:unconfigured}
+  client-id: ${COGNITO_CLIENT_ID:unconfigured}
+  mcp-client-id: ${COGNITO_MCP_CLIENT_ID:}
+  issuer: ${COGNITO_ISSUER:https://cognito-idp.us-east-1.amazonaws.com/unconfigured}
+  jwks-uri: ${COGNITO_JWKS_URI:${cognito.issuer}/.well-known/jwks.json}
+  endpoint: ${COGNITO_ENDPOINT:}

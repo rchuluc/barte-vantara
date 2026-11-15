@@ -4,7 +4,16 @@ Modules: `network` (VPC, two public/two private subnets, restrictive SGs, S3
 gateway endpoint); `data` (private PostgreSQL 17, S3, runtime secret); `service`
 (ECR, ECS, scoped execution/task roles, health probes, Datadog); `migration`
 (one-shot privileged deployment task); `delivery` (per-app GitHub OIDC roles);
-`planning` (read-only GitHub OIDC role for infrastructure plans).
+`planning` (read-only GitHub OIDC role for infrastructure plans); `identity`
+(admin-provisioned Cognito user pool, web client and optional delegated MCP client).
+
+Identity settings are wired into the backend ECS task. The task role can create,
+set a password on, and compensate deletion of users only in that pool. It cannot
+manage pools, clients, roles or approval grants. Local seed users never enter
+Terraform/state. Configure `mcp_callback_urls` with registered HTTPS callbacks to
+enable the separate authorization-code client; the adapter must use PKCE. Its
+client ID is classified as AI-originated by the backend. See
+[backend identity contract](../apps/backend/AUTH.md).
 
 The standalone [`bootstrap`](bootstrap/README.md) root creates the S3 state bucket
 before the main stack initializes; it maintains separate local state.
@@ -21,6 +30,10 @@ terraform -chdir=bootstrap validate
 terraform -chdir=bootstrap test
 trivy config --severity HIGH,CRITICAL --exit-code 1 .
 ```
+
+For an already initialized remote-state checkout, set `TF_DATA_DIR` to a fresh
+temporary directory for all static commands above so initialization does not
+reuse remote backend metadata.
 
 Tests use mocked providers and plan assertions; they make no AWS changes. They
 check private/encrypted RDS, backups/deletion protection, S3 access controls,

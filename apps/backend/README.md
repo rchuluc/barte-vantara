@@ -1,6 +1,8 @@
 # Backend
 
 Kotlin / Spring Boot 4, JDK 21, Gradle wrapper, Spring JDBC, Flyway, Actuator.
+See [AUTH.md](AUTH.md) for Cognito sign-in, scoped user-management routes,
+development seed accounts and OIDC/RBAC/RLS enforcement.
 `GET /api/hello` reads PostgreSQL 17. `GET /api/health` exposes application health,
 including a PostgreSQL connectivity check: HTTP 200 when UP and
 HTTP 503 when DOWN. Error details and database credentials are never exposed.

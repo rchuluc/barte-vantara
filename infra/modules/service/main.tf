@@ -49,6 +49,18 @@ resource "aws_iam_role_policy" "storage" {
   ] })
 }
 
+resource "aws_iam_role_policy" "identity" {
+  count = var.app == "backend" ? 1 : 0
+  role  = aws_iam_role.task.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    {
+      Effect   = "Allow"
+      Action   = ["cognito-idp:AdminCreateUser", "cognito-idp:AdminSetUserPassword", "cognito-idp:AdminDeleteUser"]
+      Resource = var.cognito_pool_arn
+    }
+  ] })
+}
+
 resource "aws_lb_target_group" "this" {
   count                = var.public_service ? 1 : 0
   name                 = var.name

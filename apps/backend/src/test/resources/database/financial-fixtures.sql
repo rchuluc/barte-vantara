@@ -34,6 +34,10 @@ FROM (VALUES
     ('bill', 'payable', 'Sao Jorge Embalagens', 'NF 88231', '2026-07-20', 18900.00)
 ) v(key, direction, party, doc, due, amount);
 INSERT INTO finance.bank_account VALUES (md5('a')::uuid, md5('a-unit')::uuid, md5('account')::uuid, '341', 'test-account', 'BRL');
+INSERT INTO finance.bank_account VALUES (md5('a')::uuid, md5('a-unit')::uuid, md5('account-denied')::uuid, '341', 'restricted-account', 'BRL');
+UPDATE finance.source_record SET account_id = md5('account')::uuid WHERE dataset_kind = 'bank';
+INSERT INTO finance.member_bank_account
+SELECT tenant_id, id, md5('a-unit')::uuid, md5('account')::uuid FROM finance.membership WHERE tenant_id = md5('a')::uuid;
 INSERT INTO finance.bank_entry (tenant_id, unit_id, id, account_id, direction, booking_date, amount_minor, currency, description, source_id)
 SELECT md5('a')::uuid, md5('a-unit')::uuid, md5(key)::uuid, md5('account')::uuid, direction, posted::date, amount * 100, 'BRL', description, md5(key || '-source')::uuid
 FROM (VALUES

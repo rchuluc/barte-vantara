@@ -103,8 +103,8 @@ private class PostgresFinanceRepository(
             connection
                 .prepareStatement(
                     """
-                    INSERT INTO finance.source_record (tenant_id, unit_id, batch_id, dataset_kind, category, locator, raw_text)
-                    VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (tenant_id, batch_id, locator) DO NOTHING
+                    INSERT INTO finance.source_record (tenant_id, unit_id, batch_id, dataset_kind, category, locator, raw_text, account_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (tenant_id, batch_id, locator) DO NOTHING
                     """.trimIndent(),
                 ).use {
                     it.setObject(1, tenantId)
@@ -114,11 +114,12 @@ private class PostgresFinanceRepository(
                     it.setString(5, record.category)
                     it.setString(6, record.locator)
                     it.setString(7, record.rawText)
+                    it.setObject(8, record.accountId)
                     it.executeUpdate()
                 }
             connection
                 .prepareStatement(
-                    "SELECT id, raw_text, category FROM finance.source_record WHERE tenant_id = ? AND batch_id = ? AND locator = ?",
+                    "SELECT id, raw_text, category, account_id FROM finance.source_record WHERE tenant_id = ? AND batch_id = ? AND locator = ?",
                 ).use {
                     it.setObject(1, tenantId)
                     it.setObject(2, batchId)
@@ -126,7 +127,8 @@ private class PostgresFinanceRepository(
                     it.executeQuery().use { result ->
                         result.next()
                         if (result.getString("raw_text") != record.rawText ||
-                            result.getString("category") != record.category
+                            result.getString("category") != record.category ||
+                            result.getObject("account_id", UUID::class.java) != record.accountId
                         ) {
                             throw SourceConflict()
                         }

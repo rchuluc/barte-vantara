@@ -54,3 +54,7 @@ variable "secrets" {
   type    = map(string)
   default = {}
 }
+variable "cognito_pool_arn" {
+  type    = string
+  default = ""
+}
