@@ -29,7 +29,8 @@ resource "aws_ecs_task_definition" "this" {
   container_definitions = jsonencode([{
     name             = "migrate", image = var.image, essential = true, user = "10001:10001", readonlyRootFilesystem = true,
     command          = ["--spring.profiles.active=migrate"],
-    linuxParameters  = { initProcessEnabled = true, capabilities = { drop = ["ALL"] } },
+    linuxParameters  = { initProcessEnabled = true, capabilities = { add = [], drop = ["ALL"] } },
+    portMappings     = [], systemControls = [], volumesFrom = [],
     mountPoints      = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }],
     environment      = [{ name = "DB_URL", value = var.db_url }, { name = "DB_USER", value = "migrator" }, { name = "OTEL_TRACES_EXPORTER", value = "none" }],
     secrets          = [{ name = "DB_PASSWORD", valueFrom = "${var.master_secret_arn}:password::" }, { name = "APP_DB_PASSWORD", valueFrom = var.runtime_secret_arn }],

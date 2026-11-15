@@ -78,7 +78,7 @@ resource "aws_service_discovery_service" "this" {
     }
     routing_policy = "MULTIVALUE"
   }
-  health_check_custom_config {}
+  health_check_custom_config { failure_threshold = 1 }
 }
 
 resource "aws_lb_listener" "https" {
@@ -111,8 +111,9 @@ resource "aws_ecs_task_definition" "this" {
     {
       name                   = var.app, image = var.image, essential = true, user = var.app == "backend" ? "10001:10001" : "1000:1000",
       readonlyRootFilesystem = true, stopTimeout = 35,
-      linuxParameters        = { initProcessEnabled = true, capabilities = { drop = ["ALL"] } },
-      portMappings           = [{ containerPort = var.port, protocol = "tcp" }],
+      linuxParameters        = { initProcessEnabled = true, capabilities = { add = [], drop = ["ALL"] } },
+      portMappings           = [{ containerPort = var.port, hostPort = var.port, protocol = "tcp" }],
+      systemControls         = [], volumesFrom = [],
       mountPoints            = [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }],
       environment = [for k, v in merge(var.environment_variables, {
         OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4318",
@@ -126,8 +127,9 @@ resource "aws_ecs_task_definition" "this" {
       dockerLabels     = { "com.datadoghq.tags.service" = var.name, "com.datadoghq.tags.env" = var.environment }
     },
     {
-      name = "datadog", image = var.datadog_image, essential = true, user = "dd-agent",
-      cpu  = 64, memoryReservation = 256,
+      name        = "datadog", image = var.datadog_image, essential = true, user = "dd-agent",
+      cpu         = 64, memoryReservation = 256,
+      mountPoints = [], portMappings = [], systemControls = [], volumesFrom = [],
       environment = [for k, v in {
         ECS_FARGATE              = "true", DD_SITE = var.datadog_site, DD_ENV = var.environment,
         DD_APM_ENABLED           = "true", DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT = "0.0.0.0:4318",
