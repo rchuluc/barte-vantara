@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/admin/tenants/route";
-import { POST as authenticate } from "@/app/api/[tenant]/[...resource]/route";
+import { POST as authenticate } from "@/app/api/[...resource]/route";
 import { member, tenantId } from "./fixtures";
 
 const tenant = {
@@ -80,16 +80,16 @@ it.each([401, 403, 409, 503])(
 
 function signin(path: string, body: unknown, cookie?: string) {
   return authenticate(
-    new NextRequest(`http://localhost:3000/api/vantara/${path}`, {
+    new NextRequest(`http://vantara.localhost:3000/api/${path}`, {
       method: "POST",
       headers: {
-        origin: "http://localhost:3000",
+        origin: "http://vantara.localhost:3000",
         ...(cookie ? { cookie } : {}),
       },
       body: JSON.stringify(body),
     }),
     {
-      params: Promise.resolve({ tenant: "vantara", resource: path.split("/") }),
+      params: Promise.resolve({ resource: path.split("/") }),
     },
   );
 }

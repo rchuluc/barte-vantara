@@ -103,15 +103,12 @@ it("rewrites tenant domains while preserving queries and platform paths", async 
     ),
   ).toContain("/vantara/dashboard");
   expect(
-    (
-      await proxy(new NextRequest("http://localhost/vantara/login"))
-    ).headers.get("x-middleware-next"),
-  ).toBe("1");
+    (await proxy(new NextRequest("http://localhost/vantara/login"))).status,
+  ).toBe(404);
   expect(
-    (
-      await proxy(new NextRequest("http://vantara.localhost/vantara/login"))
-    ).headers.get("x-middleware-next"),
-  ).toBe("1");
+    (await proxy(new NextRequest("http://vantara.localhost/vantara/login")))
+      .status,
+  ).toBe(404);
 });
 
 it("rejects another tenant path on a mapped domain", async () => {
@@ -151,8 +148,8 @@ it("redirects unknown tenant URLs without forwarding their path or query", async
   expect(
     (
       await proxy(new NextRequest("http://localhost/vantara/login"))
-    ).headers.get("x-middleware-next"),
-  ).toBe("1");
+    ).headers.get("location"),
+  ).toBe("https://www.barte.com/");
   expect(
     (
       await proxy(new NextRequest("http://vantara.localhost/login"))

@@ -80,7 +80,5 @@ it("redirects unknown workspace pages and metadata to the configured owner URL",
 });
 
 it("redirects tenant roots into the dashboard", async () => {
-  await expect(
-    TenantHome({ params: Promise.resolve({ tenant: "vantara" }) }),
-  ).rejects.toThrow("redirect:/vantara/dashboard");
+  await expect(TenantHome()).rejects.toThrow("redirect:/dashboard");
 });

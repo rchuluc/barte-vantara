@@ -14,7 +14,7 @@ describe("backend integration boundary", () => {
     render(await Home());
     expect(screen.getByRole("link", { name: "Vantara" })).toHaveAttribute(
       "href",
-      "/vantara/login",
+      "https://vantara.localhost/login",
     );
   });
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { tenantByHost, tenantBySlug } from "@/lib/tenants";
+import { tenantByHost } from "@/lib/tenants";
 import { backend } from "@/services/backend";
 import {
   ApiError,
@@ -14,7 +14,7 @@ import {
   rolesSchema,
 } from "@/lib/contracts";
 
-type Context = { params: Promise<{ tenant: string; resource: string[] }> };
+type Context = { params: Promise<{ resource: string[] }> };
 const tokensSchema = z.object({
   accessToken: z.string().min(1),
   expiresIn: z.number().int().positive().max(86400),
@@ -29,19 +29,19 @@ const pendingSchema = z.object({
 });
 
 async function handle(request: NextRequest, context: Context) {
-  const { tenant: slug, resource } = await context.params;
-  const cookieName = `vantara-${slug}`;
-  const challengeCookie = `${cookieName}-challenge`;
+  const { resource } = await context.params;
+  let cookieName: string | undefined;
   const noStore = { "Cache-Control": "no-store" };
 
   try {
-    const tenant = await tenantBySlug(slug);
-    const hostTenant = await tenantByHost(
+    const tenant = await tenantByHost(
       request.headers.get("host") ?? request.nextUrl.host,
     );
 
-    if (!tenant || (hostTenant && hostTenant.slug !== slug))
-      throw new ApiError(404, statusMessage(404));
+    if (!tenant) throw new ApiError(404, statusMessage(404));
+
+    cookieName = `vantara-${tenant.slug}`;
+    const challengeCookie = `${cookieName}-challenge`;
 
     const method = request.method;
 
@@ -247,7 +247,7 @@ async function handle(request: NextRequest, context: Context) {
       { status, headers: noStore },
     );
 
-    if (status === 401)
+    if (status === 401 && cookieName)
       response.cookies.set(cookieName, "", { path: "/", maxAge: 0 });
 
     return response;

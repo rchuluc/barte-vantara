@@ -24,7 +24,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           }}
         />
         <Button asChild>
-          <Link href={`/${tenant.slug}/login`}>Return to sign in</Link>
+          <Link href="/login">Return to sign in</Link>
         </Button>
       </main>
     );
@@ -45,7 +45,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       </a>
       <aside className="flex flex-col gap-8 border-b border-border bg-card p-6 lg:border-r lg:border-b-0">
         <Link
-          href={`/${tenant.slug}/dashboard`}
+          href="/dashboard"
           className="text-2xl font-semibold tracking-tight"
         >
           {tenant.name}
@@ -69,7 +69,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 className="justify-start"
               >
                 <Link
-                  href={`/${tenant.slug}/${path}`}
+                  href={`/${path}`}
                   aria-current={
                     pathname.endsWith(`/${path}`) ? "page" : undefined
                   }

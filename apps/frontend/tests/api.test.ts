@@ -1,12 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import {
-  GET,
-  POST,
-  PATCH,
-  DELETE,
-} from "@/app/api/[tenant]/[...resource]/route";
+import { GET, POST, PATCH, DELETE } from "@/app/api/[...resource]/route";
 import { backend } from "@/services/backend";
 import { z } from "zod";
 import { member, admin, other, newUser, tenantId } from "./fixtures";
@@ -35,11 +30,11 @@ function call(
 ) {
   const slug = options.slug ?? "vantara";
   const headers = new Headers({
-    origin: options.origin ?? "http://localhost:3000",
-    host: options.host ?? "localhost:3000",
+    origin: options.origin ?? "http://vantara.localhost:3000",
+    host: options.host ?? "vantara.localhost:3000",
   });
   if (options.cookie !== false) headers.set("cookie", `vantara-${slug}=token`);
-  const request = new NextRequest(`http://localhost:3000/api/${slug}/${path}`, {
+  const request = new NextRequest(`http://vantara.localhost:3000/api/${path}`, {
     method,
     headers,
     body:
@@ -56,7 +51,6 @@ function call(
 
   return handler(request, {
     params: Promise.resolve({
-      tenant: slug,
       resource: path.split("?")[0].split("/"),
     }),
   });
@@ -72,11 +66,22 @@ afterEach(() => {
 });
 
 describe("tenant session boundary", () => {
+  it("cannot select a tenant through the old API path", async () => {
+    expect(
+      (await call("vantara/me", "GET", undefined, { host: "unknown.test" }))
+        .status,
+    ).toBe(404);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce(Response.json(admin));
+    expect((await call("vantara/me")).status).toBe(404);
+  });
+
   it("compares browser origin to the public Host, not Next's internal bind address", async () => {
     fetchMock
       .mockResolvedValueOnce(Response.json(tokens))
       .mockResolvedValueOnce(Response.json(member));
-    const request = new NextRequest("http://0.0.0.0:3217/api/vantara/signin", {
+    const request = new NextRequest("http://0.0.0.0:3217/api/signin", {
       method: "POST",
       headers: {
         origin: "http://vantara.localhost:3217",
@@ -87,7 +92,7 @@ describe("tenant session boundary", () => {
     expect(
       (
         await POST(request, {
-          params: Promise.resolve({ tenant: "vantara", resource: ["signin"] }),
+          params: Promise.resolve({ resource: ["signin"] }),
         })
       ).status,
     ).toBe(200);
@@ -95,13 +100,13 @@ describe("tenant session boundary", () => {
 
   it("can use the URL authority when a Host header is absent", async () => {
     const request = new NextRequest(
-      "http://localhost:3000/api/vantara/logout",
-      { method: "POST", headers: { origin: "http://localhost:3000" } },
+      "http://vantara.localhost:3000/api/logout",
+      { method: "POST", headers: { origin: "http://vantara.localhost:3000" } },
     );
     expect(
       (
         await POST(request, {
-          params: Promise.resolve({ tenant: "vantara", resource: ["logout"] }),
+          params: Promise.resolve({ resource: ["logout"] }),
         })
       ).status,
     ).toBe(204);
@@ -178,7 +183,7 @@ describe("tenant session boundary", () => {
   it("rejects unknown tenants, domain mismatches, and missing sessions", async () => {
     vi.stubEnv("TENANT_NOT_FOUND_REDIRECT_URL", "https://www.barte.com");
     expect(
-      (await call("me", "GET", undefined, { slug: "missing" })).status,
+      (await call("me", "GET", undefined, { host: "unknown.test" })).status,
     ).toBe(404);
     const second = {
       id: other.id,
@@ -198,7 +203,7 @@ describe("tenant session boundary", () => {
     ]);
     expect(
       (await call("me", "GET", undefined, { host: "second.test" })).status,
-    ).toBe(404);
+    ).toBe(401);
     const response = await call("me", "GET", undefined, { cookie: false });
     expect(response.status).toBe(401);
     expect(response.headers.get("set-cookie")).toContain("Max-Age=0");

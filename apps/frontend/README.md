@@ -24,8 +24,8 @@ containerized path is `docker compose up -d --build` at the repository root.
 
 `/api/health` is a process health probe, deliberately independent of backend
 availability so a backend outage does not restart every frontend task.
-The root page lists configured workspaces. `/vantara/login` is the seeded entry
-point; `http://vantara.localhost:3217/login` also works via hostname rewriting.
+Tenants are selected only by hostname. Open `http://vantara.localhost:3217/login`
+for the seeded workspace. Tenant-prefixed browser paths are rejected.
 
 ## Tenants and branding
 
@@ -37,9 +37,9 @@ Unavailable or invalid backend responses fail closed.
 Set server-side `TENANT_NOT_FOUND_REDIRECT_URL` to an absolute HTTP(S) URL to
 redirect browser requests with no matching tenant (307). There is no default;
 unset or blank keeps unknown-tenant 404s. API routes still return JSON errors,
-and backend outages are not treated as missing tenants. Valid tenant paths on
-the platform host remain supported. With a redirect configured, an unmapped
-host's root also redirects instead of showing the workspace selector.
+and backend outages are not treated as missing tenants. Unmapped hosts cannot
+select tenants through a URL path. API routes resolve their tenant from Host
+and use paths such as `/api/signin` and `/api/me`.
 
 Production explicitly sets `TENANT_NOT_FOUND_REDIRECT_URL=https://www.barte.com`.
 Terraform supplies it through `tenant_not_found_redirect_url`; set that field in
@@ -61,15 +61,15 @@ npm run tenant:add -- --name "Acme Finance" --slug acme --primary '#112233' \
 
 The script generates the UUID and runs the local Compose seed to create branding
 and an administrator with development password `@Test123`. Open
-`http://localhost:3000/acme/login` (or port 3217 for a separate dev server).
+`http://acme.localhost:3000/login` (or port 3217 for a separate dev server).
 See [tenant provisioning](../../docs/tenant-provisioning.md) for production registration.
 
 Each tenant needs a corresponding database tenant and active memberships. Slugs
 and exact domain mappings must be unique; arbitrary `vantara.*` domains are not
 trusted automatically. Configure DNS/TLS and your ingress for production domains.
-Next's proxy rewrites mapped-domain routes into `app/[tenant]`; explicit
-`/[tenant]/...` paths work on the platform host. Mapped domains cannot use another
-tenant's paths or API. The name is the text logo and document title; the primary
+Next's proxy internally rewrites mapped-domain routes into `app/[tenant]` while
+the browser keeps `/login`, `/dashboard`, `/users`, or `/profile`. Explicit
+`/[tenant]/...` URLs are rejected. The name is the text logo and document title; the primary
 color drives branded surfaces/actions, with automatically contrasted text.
 
 ## Data and authentication

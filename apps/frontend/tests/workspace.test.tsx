@@ -22,7 +22,7 @@ import WorkspaceLayout from "@/app/[tenant]/(workspace)/layout";
 
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
-  pathname: "/vantara/dashboard",
+  pathname: "/dashboard",
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation,
@@ -49,7 +49,7 @@ beforeEach(() => {
   identity = { ...member };
   people = [other];
   navigation.replace.mockReset();
-  navigation.pathname = "/vantara/dashboard";
+  navigation.pathname = "/dashboard";
   fetchMock.mockReset().mockImplementation(async (url, options) => {
     const path = String(url);
     if (path.endsWith("/me") || path.endsWith("/signin"))
@@ -79,10 +79,10 @@ it("submits login through the hook, toggles password visibility, and navigates o
   fireEvent.click(screen.getByRole("button", { name: "Hide password" }));
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await waitFor(() =>
-    expect(navigation.replace).toHaveBeenCalledWith("/vantara/dashboard"),
+    expect(navigation.replace).toHaveBeenCalledWith("/dashboard"),
   );
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/vantara/signin",
+    "/api/signin",
     expect.objectContaining({
       method: "POST",
       body: JSON.stringify({ email: member.email, password: "secret" }),
@@ -107,10 +107,10 @@ it("completes invited administrator password replacement before navigation", asy
     screen.getByRole("button", { name: "Set password and sign in" }),
   );
   await waitFor(() =>
-    expect(navigation.replace).toHaveBeenCalledWith("/vantara/dashboard"),
+    expect(navigation.replace).toHaveBeenCalledWith("/dashboard"),
   );
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/vantara/signin/password",
+    "/api/signin/password",
     expect.objectContaining({
       body: JSON.stringify({ newPassword: "Replacement123!" }),
     }),
@@ -161,7 +161,7 @@ it("renders a member sidebar, profile navigation and signs out", async () => {
   expect(await screen.findByText("Private content")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "My profile" })).toHaveAttribute(
     "href",
-    "/vantara/profile",
+    "/profile",
   );
   expect(
     screen.queryByRole("link", { name: "User management" }),
@@ -172,13 +172,13 @@ it("renders a member sidebar, profile navigation and signs out", async () => {
   );
   fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
   await waitFor(() =>
-    expect(navigation.replace).toHaveBeenCalledWith("/vantara/login"),
+    expect(navigation.replace).toHaveBeenCalledWith("/login"),
   );
 });
 
 it("renders admin navigation and fallback display names", async () => {
   identity = { ...admin, display_name: "" };
-  navigation.pathname = "/vantara/users";
+  navigation.pathname = "/users";
   mount(
     <WorkspaceShell>
       <p>Private</p>
@@ -206,7 +206,7 @@ it("does not reveal protected content on failure and can retry", async () => {
   expect(screen.queryByText("Private")).not.toBeInTheDocument();
   expect(
     screen.getByRole("link", { name: "Return to sign in" }),
-  ).toHaveAttribute("href", "/vantara/login");
+  ).toHaveAttribute("href", "/login");
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByText("Private")).toBeInTheDocument();
 });
@@ -219,7 +219,7 @@ it("redirects expired sessions", async () => {
     </WorkspaceShell>,
   );
   await waitFor(() =>
-    expect(navigation.replace).toHaveBeenCalledWith("/vantara/login"),
+    expect(navigation.replace).toHaveBeenCalledWith("/login"),
   );
   view.unmount();
 });
@@ -341,7 +341,7 @@ it("creates a user with role and scope validation", async () => {
     expect(screen.queryByLabelText("Display name")).not.toBeInTheDocument(),
   );
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/vantara/users",
+    "/api/users",
     expect.objectContaining({
       method: "POST",
       body: JSON.stringify({
@@ -370,7 +370,7 @@ it("edits a user, retains scopes, and does not expose password or email editing"
   fireEvent.click(screen.getByRole("button", { name: "Save user" }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      `/api/vantara/users/${other.id}`,
+      `/api/users/${other.id}`,
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({

@@ -11,22 +11,20 @@ export async function proxy(request: NextRequest) {
   const pathTenant = await tenantBySlug(path.split("/")[1]);
 
   if (!tenant) {
-    const redirectUrl = !pathTenant && tenantNotFoundRedirectUrl();
+    const redirectUrl = tenantNotFoundRedirectUrl();
 
     return redirectUrl
       ? NextResponse.redirect(redirectUrl)
-      : NextResponse.next();
+      : new NextResponse("Workspace not found", { status: 404 });
   }
 
-  if (pathTenant && pathTenant.slug !== tenant.slug) {
+  if (pathTenant) {
     const redirectUrl = tenantNotFoundRedirectUrl();
 
     if (redirectUrl) return NextResponse.redirect(redirectUrl);
 
     return new NextResponse("Workspace not found", { status: 404 });
   }
-
-  if (pathTenant) return NextResponse.next();
 
   const url = request.nextUrl.clone();
   url.pathname = `/${tenant.slug}${path === "/" ? "/dashboard" : path}`;

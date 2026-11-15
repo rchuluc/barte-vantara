@@ -6,9 +6,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("offers recoverable network failure feedback", async () => {
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
-  await expect(workspace.me("vantara")).rejects.toThrow(
-    "Check your connection",
-  );
+  await expect(workspace.me()).rejects.toThrow("Check your connection");
 });
 
 it("rejects malformed response shapes", async () => {
@@ -16,7 +14,7 @@ it("rejects malformed response shapes", async () => {
     "fetch",
     vi.fn().mockResolvedValue(Response.json({ email: "invalid" })),
   );
-  await expect(workspace.me("vantara")).rejects.toThrow("Invalid response");
+  await expect(workspace.me()).rejects.toThrow("Invalid response");
 });
 
 it("gives an actionable rate-limit message", () => {
@@ -30,7 +28,7 @@ it("does not leak HTML or JSON parser errors to users", async () => {
       .fn()
       .mockResolvedValue(new Response("<html>Internal gateway error</html>")),
   );
-  await expect(workspace.me("vantara")).rejects.toThrow(
+  await expect(workspace.me()).rejects.toThrow(
     "Invalid response. Please try again.",
   );
 });

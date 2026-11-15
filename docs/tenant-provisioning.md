@@ -23,7 +23,7 @@ creation endpoint.
 1. Deploy migration V7 before the new backend, then deploy the frontend.
 2. Configure the GitHub environment **prod-tenants**, restrict deployment branches
    to `main`, and set its variable **APP_URL** to the HTTPS frontend origin
-   (for example `https://app.example.com`, without a path or query).
+   (production: `https://vantara.wura.io`, without a path or query).
 3. Set backend **PROVISIONING_GITHUB_REPOSITORY** to the repository segment of
    GitHub's OIDC subject: `owner/repository` for legacy subjects or
    `owner@owner-id/repository@repository-id` for immutable subjects. The subject
@@ -66,6 +66,8 @@ have been emailed when a database failure occurs. After timeout or failure, chec
 registration and Cognito before retrying; cleanup failures require operator
 reconciliation. Duplicate registrations return 409 rather than overwriting data.
 
+Tenants are selected only by their registered hostname, never by a path slug.
+The production Vantara login is `https://vantara.wura.io/login`.
 The first administrator signs in at the tenant's `/login` page with the emailed
 password and is prompted to replace it. The pending challenge is HttpOnly and
 short-lived. A normal session is issued only after active membership verification.
@@ -92,7 +94,7 @@ owner credentials, with a newly generated tenant ID. It creates one administrato
 with permanent development password `@Test123`; local email delivery is not
 required. Use a distinct administrator email for each tenant. The seed can reset
 the supplied local user's password. Duplicate slugs or domains fail rather than
-overwrite existing registrations. Visit `http://localhost:3000/acme/login`, or
+overwrite existing registrations. Visit `http://acme.localhost:3000/login`, or
 use your Next development server's port. Registration does not create business
 units or bank accounts; admins configure those separately.
 

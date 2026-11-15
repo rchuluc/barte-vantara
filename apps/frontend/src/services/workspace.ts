@@ -12,7 +12,6 @@ import {
 } from "@/lib/contracts";
 
 async function request<T>(
-  tenant: string,
   path: string,
   schema: z.ZodType<T>,
   method = "GET",
@@ -21,7 +20,7 @@ async function request<T>(
   let response: Response;
 
   try {
-    response = await fetch(`/api/${tenant}/${path}`, {
+    response = await fetch(`/api/${path}`, {
       method,
       headers: { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -47,23 +46,20 @@ async function request<T>(
 }
 
 export const workspace = {
-  me: (tenant: string) => request(tenant, "me", meSchema),
-  signin: (tenant: string, body: SigninInput) =>
+  me: () => request("me", meSchema),
+  signin: (body: SigninInput) =>
     request(
-      tenant,
       "newPassword" in body ? "signin/password" : "signin",
       signinResultSchema,
       "POST",
       body,
     ),
-  logout: (tenant: string) => request(tenant, "logout", z.null(), "POST"),
-  users: (tenant: string, offset: number) =>
-    request(tenant, `users?offset=${offset}&limit=20`, z.array(userSchema)),
-  roles: (tenant: string) => request(tenant, "users/roles", rolesSchema),
-  create: (tenant: string, body: CreateUser) =>
-    request(tenant, "users", userSchema, "POST", body),
-  update: (tenant: string, id: string, body: PatchUser) =>
-    request(tenant, `users/${id}`, userSchema, "PATCH", body),
-  deactivate: (tenant: string, id: string) =>
-    request(tenant, `users/${id}`, z.null(), "DELETE"),
+  logout: () => request("logout", z.null(), "POST"),
+  users: (offset: number) =>
+    request(`users?offset=${offset}&limit=20`, z.array(userSchema)),
+  roles: () => request("users/roles", rolesSchema),
+  create: (body: CreateUser) => request("users", userSchema, "POST", body),
+  update: (id: string, body: PatchUser) =>
+    request(`users/${id}`, userSchema, "PATCH", body),
+  deactivate: (id: string) => request(`users/${id}`, z.null(), "DELETE"),
 };

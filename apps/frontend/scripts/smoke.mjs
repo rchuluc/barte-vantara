@@ -1,16 +1,56 @@
 import assert from "node:assert/strict";
+import { request as httpRequest } from "node:http";
 
 // Explicit local-only integration check against the running Next app and seeded backend.
 const origin = process.env.SMOKE_ORIGIN ?? "http://localhost:3217";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(origin).hostname));
+assert.equal(new URL(origin).protocol, "http:");
+const tenantOrigin = new URL(origin);
+tenantOrigin.hostname = "vantara.localhost";
 const password = process.env.SMOKE_PASSWORD ?? "@Test123";
 let cookie = "";
 
 async function request(path, method = "GET", body, expected = 200) {
-  const response = await fetch(`${origin}/api/vantara/${path}`, {
-    method,
-    headers: { origin, cookie, "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
+  // Node fetch replaces Host; use HTTP directly to exercise subdomain routing on loopback.
+  const response = await new Promise((resolve, reject) => {
+    const req = httpRequest(
+      `${origin}/api/${path}`,
+      {
+        method,
+        headers: {
+          origin: tenantOrigin.origin,
+          host: tenantOrigin.host,
+          cookie,
+          "Content-Type": "application/json",
+        },
+      },
+      async (res) => {
+        try {
+          const chunks = [];
+          for await (const chunk of res) chunks.push(chunk);
+          const headers = new Headers();
+          for (const [name, values] of Object.entries(res.headers)) {
+            for (const value of [values].flat()) {
+              if (value !== undefined) headers.append(name, value);
+            }
+          }
+          resolve(
+            new Response(
+              res.statusCode === 204 ? null : Buffer.concat(chunks),
+              {
+                status: res.statusCode,
+                headers,
+              },
+            ),
+          );
+        } catch (error) {
+          reject(error);
+        }
+      },
+    );
+    req.on("error", reject);
+    req.setTimeout(20000, () => req.destroy(new Error("Request timed out")));
+    req.end(body === undefined ? undefined : JSON.stringify(body));
   });
   assert.equal(
     response.status,

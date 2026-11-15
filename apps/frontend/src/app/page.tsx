@@ -28,7 +28,9 @@ export default async function Home() {
           <nav aria-label="Workspaces" className="flex flex-col gap-3">
             {workspaces.map((tenant) => (
               <Button key={tenant.slug} asChild variant="outline">
-                <Link href={`/${tenant.slug}/login`}>{tenant.name}</Link>
+                <Link href={`https://${tenant.domains[0]}/login`}>
+                  {tenant.name}
+                </Link>
               </Button>
             ))}
           </nav>
