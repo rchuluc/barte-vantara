@@ -10,7 +10,7 @@
     "infra:test": "terraform -chdir=infra init -backend=false && terraform -chdir=infra validate && terraform -chdir=infra test && terraform -chdir=infra/bootstrap init -backend=false && terraform -chdir=infra/bootstrap validate && terraform -chdir=infra/bootstrap test"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.0.0",
+    "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^20.0.0",
     "lefthook": "^2.0.0",
     "prettier": "3.10.1"
