@@ -1,0 +1,58 @@
+name: provision-tenant
+
+on:
+  workflow_dispatch:
+    inputs:
+      tenant_name:
+        description: "Display name shown on login and workspace pages. Example: Acme Finance"
+        required: true
+        type: string
+      tenant_slug:
+        description: "Unique URL slug, lowercase letters/numbers/hyphens, starting with a letter. Example: acme"
+        required: true
+        type: string
+      tenant_primary:
+        description: "Brand color in #RRGGBB format. Example: #f0a500"
+        required: true
+        type: string
+      tenant_domains:
+        description: "Comma-separated hostnames, without https:// or paths. Example: acme.example.com, portal.acme.com"
+        required: true
+        type: string
+      first_user_email:
+        description: "First administrator's email; Cognito emails a temporary password. Example: admin@acme.com"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provision-tenant-production
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: prod-tenants
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+
+      - name: Register tenant and invite first administrator
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          TENANT_NAME: ${{ inputs.tenant_name }}
+          TENANT_SLUG: ${{ inputs.tenant_slug }}
+          TENANT_PRIMARY: ${{ inputs.tenant_primary }}
+          TENANT_DOMAINS: ${{ inputs.tenant_domains }}
+          FIRST_USER_EMAIL: ${{ inputs.first_user_email }}
+        run: node scripts/provision-tenant.mjs

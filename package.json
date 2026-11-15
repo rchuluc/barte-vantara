@@ -2,10 +2,11 @@
   "name": "barte-vantara",
   "private": true,
   "scripts": {
+    "tenant:add": "node scripts/add-dev-tenant.mjs",
     "prepare": "lefthook install",
     "format": "prettier --write '.github/**/*.yml' 'scripts/*.mjs' lefthook.yml package.json commitlint.config.mjs .prettierrc.json",
     "format:check": "prettier --check '.github/**/*.yml' 'scripts/*.mjs' lefthook.yml package.json commitlint.config.mjs .prettierrc.json",
-    "test:actions": "node --test scripts/actions.test.mjs",
+    "test:actions": "node --test scripts/*.test.mjs",
     "test": "npm --prefix apps/frontend run test:coverage && cd apps/backend && ./gradlew check",
     "infra:test": "terraform -chdir=infra init -backend=false && terraform -chdir=infra validate && terraform -chdir=infra test && terraform -chdir=infra/bootstrap init -backend=false && terraform -chdir=infra/bootstrap validate && terraform -chdir=infra/bootstrap test"
   },

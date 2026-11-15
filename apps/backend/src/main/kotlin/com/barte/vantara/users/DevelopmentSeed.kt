@@ -5,7 +5,9 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.CommandLineRunner
 import org.springframework.context.annotation.Profile
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.datasource.DataSourceTransactionManager
 import org.springframework.stereotype.Component
+import org.springframework.transaction.support.TransactionTemplate
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient
 import software.amazon.awssdk.services.cognitoidentityprovider.model.ExplicitAuthFlowsType
 import software.amazon.awssdk.services.cognitoidentityprovider.model.MessageActionType
@@ -24,6 +26,14 @@ class DevelopmentSeed(
     private val jdbc: JdbcTemplate,
     private val config: CognitoProperties,
     @Value("\${seed.config-path:/auth/cognito.properties}") private val configPath: String,
+    @Value("\${seed.tenant-id:ce19c2fb-b199-4b58-a274-113cd07ce416}") private val tenantId: String = "ce19c2fb-b199-4b58-a274-113cd07ce416",
+    @Value("\${seed.tenant-slug:vantara}") private val tenantSlug: String = "vantara",
+    @Value("\${seed.tenant-name:Vantara}") private val tenantName: String = "Vantara",
+    @Value("\${seed.tenant-primary:#175C4C}") private val tenantPrimary: String = "#175C4C",
+    @Value(
+        "\${seed.tenant-domains:vantara.localhost,vantara.com.br}",
+    ) private val tenantDomains: String = "vantara.localhost,vantara.com.br",
+    @Value("\${seed.admin-email:}") private val adminEmail: String = "",
 ) : CommandLineRunner {
     override fun run(vararg args: String) {
         require(URI(config.endpoint).host in setOf("floci", "localhost", "127.0.0.1")) { "Seed requires local Floci" }
@@ -72,11 +82,27 @@ class DevelopmentSeed(
                             )
                     }.userPoolClient()
                     .clientId()
-        val tenant = UUID.fromString("ce19c2fb-b199-4b58-a274-113cd07ce416")
-        jdbc.update("INSERT INTO finance.tenant (id, name) VALUES (?, 'Vantara') ON CONFLICT (id) DO NOTHING", tenant)
+        val tenant = UUID.fromString(tenantId)
+        TransactionTemplate(DataSourceTransactionManager(jdbc.dataSource!!)).execute {
+            jdbc.update("INSERT INTO finance.tenant (id, name) VALUES (?, ?) ON CONFLICT (id) DO NOTHING", tenant, tenantName)
+            val inserted =
+                jdbc.update(
+                    "INSERT INTO platform.tenant_registration (id, slug, name, primary_color) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
+                    tenant,
+                    tenantSlug,
+                    tenantName,
+                    tenantPrimary,
+                )
+            if (inserted == 1) {
+                for (domain in tenantDomains.split(',').map(String::trim)) {
+                    jdbc.update("INSERT INTO platform.tenant_domain (domain, tenant_id) VALUES (?, ?)", domain, tenant)
+                }
+            }
+        }
         var issuer = ""
-        for (role in listOf("admin", "ap", "ar", "reconciliation", "controllership", "fpa")) {
-            val email = "$role@vantara.com.br"
+        val roles = if (adminEmail.isBlank()) listOf("admin", "ap", "ar", "reconciliation", "controllership", "fpa") else listOf("admin")
+        for (role in roles) {
+            val email = if (adminEmail.isBlank()) "$role@vantara.com.br" else adminEmail.lowercase()
             val attributes =
                 try {
                     cognito.adminGetUser { it.userPoolId(pool).username(email) }.userAttributes()

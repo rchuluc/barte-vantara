@@ -11,7 +11,7 @@ import software.amazon.awssdk.core.exception.SdkException
 import software.amazon.awssdk.services.cognitoidentityprovider.model.CognitoIdentityProviderException
 import java.sql.SQLException
 
-@RestControllerAdvice(assignableTypes = [UserController::class])
+@RestControllerAdvice(assignableTypes = [UserController::class, com.barte.vantara.tenants.TenantController::class])
 class UserErrors {
     // Default binding-error logs include rejected field values, including passwords.
     @ExceptionHandler(MethodArgumentNotValidException::class, HttpMessageNotReadableException::class)

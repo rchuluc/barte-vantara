@@ -6,6 +6,7 @@ import com.barte.vantara.users.UserAccess
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -48,6 +49,16 @@ class UserManagementTests {
     private var port = 0
     private val http = HttpClient.newHttpClient()
     private val json = JsonMapper.builder().build()
+
+    @Test
+    fun `tenant branding is public but provisioning never accepts tenant administrator tokens`() {
+        assertEquals(200, request("GET", "/tenants").statusCode())
+        for (token in listOf(null, login())) {
+            assertEquals(401, request("GET", "/admin/tenants", token).statusCode())
+            assertEquals(401, request("POST", "/admin/tenants", token, "{}").statusCode())
+        }
+        assertEquals(400, request("POST", "/signin/password", body = "{}").statusCode())
+    }
 
     @Test
     fun `OIDC origin reaches PostgreSQL approval checks and ambiguous tenant identities fail closed`() {
@@ -154,6 +165,14 @@ class UserManagementTests {
     fun `development seed is repeatable and creates only tenant users and role grants`() {
         assertEquals(listOf(1, 6, 6, 0, 0, 0), seedCounts)
         assertEquals(
+            "#175C4C",
+            owner.queryForObject("SELECT primary_color FROM platform.tenant_registration WHERE id = ?", String::class.java, tenant),
+        )
+        assertEquals(
+            listOf("vantara.com.br", "vantara.localhost"),
+            owner.queryForList("SELECT domain FROM platform.tenant_domain WHERE tenant_id = ? ORDER BY domain", String::class.java, tenant),
+        )
+        assertEquals(
             6,
             cognito
                 .listUsers {
@@ -166,6 +185,66 @@ class UserManagementTests {
             assertEquals("$role@vantara.com.br", me["email"].asText())
             assertEquals(role, me["roles"][0].asText())
             assertEquals(0, me["approvalScopes"].size())
+        }
+    }
+
+    @Test
+    fun `custom local seed creates usable administrator and preserves existing branding on rerun`() {
+        val id = UUID.randomUUID()
+        val slug = "local-${id.toString().take(8)}"
+        val email = "admin@$slug.test"
+        val path = Files.createTempFile("tenant-seed", ".properties")
+        val args =
+            arrayOf(
+                "--spring.profiles.active=seed",
+                "--spring.datasource.url=${postgres.jdbcUrl}",
+                "--spring.datasource.username=${postgres.username}",
+                "--spring.datasource.password=${postgres.password}",
+                "--cognito.endpoint=$endpoint",
+                "--seed.config-path=$path",
+                "--seed.tenant-id=$id",
+                "--seed.tenant-slug=$slug",
+                "--seed.tenant-name=Local tenant",
+                "--seed.tenant-primary=#112233",
+                "--seed.tenant-domains=$slug.localhost, portal.$slug.test",
+                "--seed.admin-email=$email",
+            )
+        try {
+            main(args)
+            owner.update("UPDATE platform.tenant_registration SET name = 'Edited', primary_color = '#AABBCC' WHERE id = ?", id)
+            main(args)
+            assertEquals(
+                "Edited",
+                owner.queryForObject("SELECT name FROM platform.tenant_registration WHERE id = ?", String::class.java, id),
+            )
+            assertEquals(
+                "#AABBCC",
+                owner.queryForObject("SELECT primary_color FROM platform.tenant_registration WHERE id = ?", String::class.java, id),
+            )
+            assertEquals(2, owner.queryForObject("SELECT count(*) FROM platform.tenant_domain WHERE tenant_id = ?", Int::class.java, id))
+            assertEquals(1, owner.queryForObject("SELECT count(*) FROM finance.membership WHERE tenant_id = ?", Int::class.java, id))
+            val signin = request("POST", "/signin", body = """{"email":"$email","password":"@Test123"}""")
+            val token = body(signin)["accessToken"].asText()
+            assertEquals("admin", body(request("GET", "/me", token, tenantId = id))["roles"][0].asText())
+            assertEquals(403, request("GET", "/me", token, tenantId = tenant).statusCode())
+            val conflict = UUID.randomUUID()
+            assertThrows(org.springframework.dao.DataAccessException::class.java) {
+                DevelopmentSeed(
+                    cognito,
+                    owner,
+                    CognitoProperties(endpoint = endpoint),
+                    path.toString(),
+                    conflict.toString(),
+                    "conflict",
+                    "Conflict",
+                    "#112233",
+                    "$slug.localhost",
+                    "unused@local.test",
+                ).run()
+            }
+            assertEquals(0, owner.queryForObject("SELECT count(*) FROM finance.tenant WHERE id = ?", Int::class.java, conflict))
+        } finally {
+            Files.deleteIfExists(path)
         }
     }
 

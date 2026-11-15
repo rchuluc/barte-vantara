@@ -1,5 +1,7 @@
 region = "us-east-1"
 environment = "dev"
+# Set explicitly in production: tenant_not_found_redirect_url = "https://www.barte.com"
+tenant_not_found_redirect_url = ""
 state_bucket = "YOUR_EXISTING_TERRAFORM_STATE_BUCKET"
 state_key = "vantara/dev/terraform.tfstate"
 # state_kms_key_arn = "arn:aws:kms:us-east-1:123456789012:key/REPLACE"

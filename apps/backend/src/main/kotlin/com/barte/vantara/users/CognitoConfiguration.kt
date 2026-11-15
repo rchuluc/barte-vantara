@@ -86,9 +86,9 @@ class CognitoConfiguration {
                 it
                     .dispatcherTypeMatchers(DispatcherType.ERROR)
                     .permitAll()
-                    .requestMatchers(HttpMethod.POST, "/api/signin")
+                    .requestMatchers(HttpMethod.POST, "/api/signin", "/api/signin/password")
                     .permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/health", "/api/health/**", "/api/hello")
+                    .requestMatchers(HttpMethod.GET, "/api/health", "/api/health/**", "/api/hello", "/api/tenants")
                     .permitAll()
                     .anyRequest()
                     .authenticated()

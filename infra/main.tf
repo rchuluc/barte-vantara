@@ -86,13 +86,15 @@ module "backend" {
   datadog_site       = var.datadog_site
   datadog_secret_arn = var.datadog_api_key_secret_arn
   environment_variables = {
-    DB_URL                = "jdbc:postgresql://${module.data.endpoint}/vantara?sslmode=require"
-    DB_USER               = "app_user"
-    AWS_REGION            = var.region
-    COGNITO_POOL_ID       = module.identity.pool_id
-    COGNITO_CLIENT_ID     = module.identity.client_id
-    COGNITO_MCP_CLIENT_ID = module.identity.mcp_client_id
-    COGNITO_ISSUER        = module.identity.issuer
+    DB_URL                          = "jdbc:postgresql://${module.data.endpoint}/vantara?sslmode=require"
+    DB_USER                         = "app_user"
+    AWS_REGION                      = var.region
+    COGNITO_POOL_ID                 = module.identity.pool_id
+    COGNITO_CLIENT_ID               = module.identity.client_id
+    COGNITO_MCP_CLIENT_ID           = module.identity.mcp_client_id
+    COGNITO_ISSUER                  = module.identity.issuer
+    PROVISIONING_GITHUB_REPOSITORY  = var.github_repository
+    PROVISIONING_GITHUB_ENVIRONMENT = "${var.environment}-tenants"
   }
   cognito_pool_arn = module.identity.pool_arn
   secrets          = { DB_PASSWORD = module.data.runtime_secret_arn }
@@ -100,28 +102,32 @@ module "backend" {
 }
 
 module "frontend" {
-  source                = "./modules/service"
-  name                  = "${local.name}-frontend"
-  app                   = "frontend"
-  image                 = var.frontend_image
-  task_size             = var.frontend_task_size
-  port                  = 3000
-  health_path           = "/api/health"
-  health_command        = ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-  cluster_id            = aws_ecs_cluster.this.id
-  vpc_id                = module.network.vpc_id
-  subnet_ids            = module.network.public_subnet_ids
-  security_group_id     = module.network.frontend_security_group_id
-  region                = var.region
-  environment           = var.environment
-  desired_count         = var.desired_count
-  datadog_image         = var.datadog_image
-  datadog_site          = var.datadog_site
-  datadog_secret_arn    = var.datadog_api_key_secret_arn
-  public_service        = true
-  load_balancer_arn     = aws_lb.this.arn
-  certificate_arn       = var.certificate_arn
-  environment_variables = { HOSTNAME = "0.0.0.0", BACKEND_URL = "http://backend.${aws_service_discovery_private_dns_namespace.this.name}:8080" }
+  source             = "./modules/service"
+  name               = "${local.name}-frontend"
+  app                = "frontend"
+  image              = var.frontend_image
+  task_size          = var.frontend_task_size
+  port               = 3000
+  health_path        = "/api/health"
+  health_command     = ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+  cluster_id         = aws_ecs_cluster.this.id
+  vpc_id             = module.network.vpc_id
+  subnet_ids         = module.network.public_subnet_ids
+  security_group_id  = module.network.frontend_security_group_id
+  region             = var.region
+  environment        = var.environment
+  desired_count      = var.desired_count
+  datadog_image      = var.datadog_image
+  datadog_site       = var.datadog_site
+  datadog_secret_arn = var.datadog_api_key_secret_arn
+  public_service     = true
+  load_balancer_arn  = aws_lb.this.arn
+  certificate_arn    = var.certificate_arn
+  environment_variables = {
+    HOSTNAME                      = "0.0.0.0"
+    BACKEND_URL                   = "http://backend.${aws_service_discovery_private_dns_namespace.this.name}:8080"
+    TENANT_NOT_FOUND_REDIRECT_URL = var.tenant_not_found_redirect_url
+  }
 }
 
 module "migration" {

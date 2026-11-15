@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component
 import org.springframework.web.server.ResponseStatusException
 import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient
 import software.amazon.awssdk.services.cognitoidentityprovider.model.AuthFlowType
+import software.amazon.awssdk.services.cognitoidentityprovider.model.AuthenticationResultType
 import software.amazon.awssdk.services.cognitoidentityprovider.model.MessageActionType
 
 @Component
@@ -25,9 +26,30 @@ class CognitoUsers(
                     .authFlow(AuthFlowType.USER_PASSWORD_AUTH)
                     .authParameters(mapOf("USERNAME" to email, "PASSWORD" to password))
             }
-        val tokens =
-            result.authenticationResult()
-                ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication challenge required")
+        if (result.challengeNameAsString() == "NEW_PASSWORD_REQUIRED" && !result.session().isNullOrBlank()) {
+            return mapOf("challenge" to "NEW_PASSWORD_REQUIRED", "session" to result.session())
+        }
+        return tokens(result.authenticationResult())
+    }
+
+    fun completePassword(
+        email: String,
+        session: String,
+        password: String,
+    ): Map<String, Any> {
+        val result =
+            client.respondToAuthChallenge {
+                it
+                    .clientId(properties.clientId)
+                    .challengeName("NEW_PASSWORD_REQUIRED")
+                    .session(session)
+                    .challengeResponses(mapOf("USERNAME" to email, "NEW_PASSWORD" to password))
+            }
+        return tokens(result.authenticationResult())
+    }
+
+    private fun tokens(result: AuthenticationResultType?): Map<String, Any> {
+        val tokens = result ?: throw ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication challenge required")
         return mapOf(
             "accessToken" to tokens.accessToken(),
             "idToken" to tokens.idToken(),
@@ -35,6 +57,19 @@ class CognitoUsers(
             "expiresIn" to tokens.expiresIn(),
             "tokenType" to tokens.tokenType(),
         )
+    }
+
+    fun invite(email: String): String {
+        val user =
+            client
+                .adminCreateUser {
+                    it
+                        .userPoolId(properties.poolId)
+                        .username(email)
+                        .desiredDeliveryMediumsWithStrings("EMAIL")
+                        .userAttributes({ attribute -> attribute.name("email").value(email) })
+                }.user()
+        return user.attributes().first { it.name() == "sub" }.value()
     }
 
     fun create(

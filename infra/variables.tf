@@ -36,6 +36,12 @@ variable "backend_image" { type = string }
 
 variable "frontend_image" { type = string }
 
+variable "tenant_not_found_redirect_url" {
+  description = "Optional absolute HTTP(S) URL for browser requests with no matching tenant; empty preserves 404 responses."
+  type        = string
+  default     = ""
+}
+
 variable "backend_task_size" {
   description = "Backend Fargate task size, including Datadog (CPU units / MiB)."
   type = object({

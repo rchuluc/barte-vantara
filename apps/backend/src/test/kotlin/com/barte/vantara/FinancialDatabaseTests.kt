@@ -115,7 +115,7 @@ class FinancialDatabaseTests {
                     .dataSource(database.jdbcUrl, "migration_owner", "migrationTestOnly")
                     .placeholders(mapOf("appPassword" to "testRuntimePassword"))
                     .load()
-            assertEquals(6, flyway.migrate().migrationsExecuted)
+            assertEquals(7, flyway.migrate().migrationsExecuted)
             assertEquals(0, flyway.migrate().migrationsExecuted)
             DriverManager.getConnection(database.jdbcUrl, "app_user", "testRuntimePassword").use { connection ->
                 assertEquals(0, count(connection, "finance.title"))

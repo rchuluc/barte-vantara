@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 :root {
   --background: #fafafa;
   --foreground: #171717;
@@ -7,6 +8,16 @@
   --muted-foreground: #525252;
   --border: #e5e5e5;
   --radius: 0.75rem;
+  --primary: #175c4c;
+  --primary-foreground: #ffffff;
+  --secondary: #e9efeb;
+  --secondary-foreground: #243c32;
+  --accent: #eef2ef;
+  --accent-foreground: #243c32;
+  --muted: #f1f3f1;
+  --input: #9ca6a0;
+  --ring: #517468;
+  --destructive: #b42318;
 }
 @theme inline {
   --color-background: var(--background);
@@ -16,9 +27,80 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
   --radius-xl: var(--radius);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: calc(var(--radius) - 2px);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
 }
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, sans-serif;
+  line-height: 1.5;
+}
+
+.brand-panel {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.login-grid,
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1024px) {
+  .login-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .workspace-grid {
+    grid-template-columns: 16rem minmax(0, 1fr);
+  }
+}
+[data-slot="button"],
+[data-slot="input"] {
+  min-height: 44px;
+}
+[data-slot="input"] {
+  font-size: 1rem;
+}
+button:not(:disabled),
+[role="button"]:not(:disabled) {
+  cursor: pointer;
+}
+button,
+a,
+input {
+  touch-action: manipulation;
+}
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  transform: translateY(-200%);
+  padding: 1rem;
+  background: var(--card);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }

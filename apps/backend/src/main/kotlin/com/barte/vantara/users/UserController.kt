@@ -30,6 +30,12 @@ class SigninRequest(
     @field:NotBlank @field:Size(max = 256) val password: String,
 )
 
+class CompletePasswordRequest(
+    @field:Email @field:NotBlank val email: String,
+    @field:NotBlank @field:Size(max = 2048) val session: String,
+    @field:Size(min = 8, max = 256) val newPassword: String,
+)
+
 class CreateUserRequest(
     @field:Email @field:NotBlank @field:Size(max = 254) val email: String,
     @field:Size(min = 8, max = 256) val password: String,
@@ -60,6 +66,14 @@ class UserController(
         @Valid @RequestBody request: SigninRequest,
     ): ResponseEntity<Map<String, Any>> =
         ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(cognito.signin(request.email.lowercase(), request.password))
+
+    @PostMapping("/signin/password")
+    fun completePassword(
+        @Valid @RequestBody request: CompletePasswordRequest,
+    ): ResponseEntity<Map<String, Any>> =
+        ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(
+            cognito.completePassword(request.email.lowercase(), request.session, request.newPassword),
+        )
 
     @GetMapping("/me")
     fun me(

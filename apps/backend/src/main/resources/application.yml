@@ -40,3 +40,10 @@ cognito:
   issuer: ${COGNITO_ISSUER:https://cognito-idp.us-east-1.amazonaws.com/unconfigured}
   jwks-uri: ${COGNITO_JWKS_URI:${cognito.issuer}/.well-known/jwks.json}
   endpoint: ${COGNITO_ENDPOINT:}
+
+provisioning:
+  github:
+    repository: ${PROVISIONING_GITHUB_REPOSITORY:}
+    environment: ${PROVISIONING_GITHUB_ENVIRONMENT:prod-tenants}
+    ref: ${PROVISIONING_GITHUB_REF:refs/heads/main}
+    audience: ${PROVISIONING_GITHUB_AUDIENCE:vantara-tenant-provisioning}

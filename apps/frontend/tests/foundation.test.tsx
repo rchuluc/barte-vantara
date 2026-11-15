@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
-import { getGreeting } from "@/lib/backend";
+import { getGreeting } from "@/services/greeting";
 import { GET } from "@/app/api/health/route";
 
 afterEach(() => {
@@ -10,16 +10,11 @@ afterEach(() => {
 });
 
 describe("backend integration boundary", () => {
-  it("renders the database greeting", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(Response.json({ message: "Hello database" })),
-    );
+  it("offers workspaces returned by the backend", async () => {
     render(await Home());
-    expect(screen.getByText("Hello database")).toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledWith(
-      "http://localhost:8080/api/hello",
-      expect.objectContaining({ cache: "no-store" }),
+    expect(screen.getByRole("link", { name: "Vantara" })).toHaveAttribute(
+      "href",
+      "/vantara/login",
     );
   });
 
@@ -41,8 +36,7 @@ describe("backend integration boundary", () => {
       "fetch",
       vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
     );
-    render(await Home());
-    expect(screen.getByText(/temporarily unavailable/)).toBeInTheDocument();
+    await expect(getGreeting()).rejects.toThrow("Backend unavailable");
   });
 
   it.each([null, "bad", {}, { message: 1 }])(
