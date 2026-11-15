@@ -26,8 +26,10 @@ See root README for custom Docker context environment variables.
 
 Runtime never owns tables, has no BYPASSRLS and cannot write greetings or access
 Flyway history. Both tables ENABLE and FORCE RLS. The greeting is public reference
-data with a read-only policy; there is no tenant/authentication model yet.
-Future tenant tables need trusted identity and tenant-scoped policies and tests.
+data with a read-only policy. The financial foundation adds tenant/identity/unit
+RLS, versioned ingestion, financial evidence and review records. See
+[DATABASE.md](DATABASE.md) for the schema, repository boundary, authentication
+contract, assumptions and database integration tests.
 
 `--spring.profiles.active=migrate` runs Flyway then exits. It uses the migration
 owner's DB_USER/DB_PASSWORD and APP_DB_PASSWORD to provision the runtime login.
