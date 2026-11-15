@@ -12,15 +12,17 @@ import com.nimbusds.jwt.SignedJWT
 import com.sun.net.httpserver.HttpServer
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.security.oauth2.jwt.JwtException
 import java.net.InetSocketAddress
 import java.time.Instant
 import java.util.Date
 
 class ProvisioningIdentityTests {
-    @Test
-    fun `GitHub trust rejects missing and mismatched claims expired tokens and disabled repositories`() {
+    @ParameterizedTest
+    @ValueSource(strings = ["org/repo", "org@123/repo@456"])
+    fun `GitHub trust rejects missing and mismatched claims expired tokens and disabled repositories`(repository: String) {
         val key = RSAKeyGenerator(2048).keyID("github").generate()
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/jwks") { exchange ->
@@ -31,7 +33,7 @@ class ProvisioningIdentityTests {
         }
         server.start()
         try {
-            val properties = GithubProvisioningProperties(repository = "org/repo", jwksUri = "http://127.0.0.1:${server.address.port}/jwks")
+            val properties = GithubProvisioningProperties(repository = repository, jwksUri = "http://127.0.0.1:${server.address.port}/jwks")
             val decoder = ProvisioningSecurity().decoder(properties)
 
             fun token(change: (JWTClaimsSet.Builder) -> Unit = {}): String {
@@ -39,10 +41,10 @@ class ProvisioningIdentityTests {
                     JWTClaimsSet
                         .Builder()
                         .issuer("https://token.actions.githubusercontent.com")
-                        .subject("repo:org/repo:environment:prod-tenants")
+                        .subject("repo:$repository:environment:prod-tenants")
                         .audience(properties.audience)
                         .expirationTime(Date.from(Instant.now().plusSeconds(300)))
-                        .claim("repository", properties.repository)
+                        .claim("repository", "org/repo")
                         .claim("ref", properties.ref)
                         .claim("event_name", "workflow_dispatch")
                         .claim("workflow_ref", "org/repo/.github/workflows/provision-tenant.yml@refs/heads/main")
@@ -51,7 +53,10 @@ class ProvisioningIdentityTests {
                     .apply { sign(RSASSASigner(key)) }
                     .serialize()
             }
-            assertEquals("repo:org/repo:environment:prod-tenants", decoder.decode(token()).subject)
+            assertEquals("repo:$repository:environment:prod-tenants", decoder.decode(token()).subject)
+            assertThrows(JwtException::class.java) {
+                decoder.decode(token { it.subject("repo:org@999/repo@456:environment:prod-tenants") })
+            }
             for (claim in listOf("iss", "sub", "aud", "repository", "ref", "event_name", "workflow_ref")) {
                 for (value in listOf(null, "untrusted")) {
                     assertThrows(JwtException::class.java) { decoder.decode(token { it.claim(claim, value) }) }

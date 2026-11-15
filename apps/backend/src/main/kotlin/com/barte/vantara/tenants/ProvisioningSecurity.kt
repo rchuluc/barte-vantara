@@ -33,16 +33,17 @@ data class GithubProvisioningProperties(
 class ProvisioningSecurity {
     fun decoder(properties: GithubProvisioningProperties): JwtDecoder =
         NimbusJwtDecoder.withJwkSetUri(properties.jwksUri).build().apply {
+            val repositoryName = properties.repository.replace(Regex("@[0-9]+(?=/|$)"), "")
             setJwtValidator(
                 DelegatingOAuth2TokenValidator(
                     JwtValidators.createDefaultWithIssuer("https://token.actions.githubusercontent.com"),
                     OAuth2TokenValidator<Jwt> { token ->
                         val expected =
                             mapOf(
-                                "repository" to properties.repository,
+                                "repository" to repositoryName,
                                 "ref" to properties.ref,
                                 "event_name" to "workflow_dispatch",
-                                "workflow_ref" to "${properties.repository}/.github/workflows/provision-tenant.yml@${properties.ref}",
+                                "workflow_ref" to "$repositoryName/.github/workflows/provision-tenant.yml@${properties.ref}",
                                 "sub" to "repo:${properties.repository}:environment:${properties.environment}",
                             )
                         if (properties.repository.isNotBlank() &&

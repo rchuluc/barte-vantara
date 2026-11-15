@@ -24,7 +24,10 @@ creation endpoint.
 2. Configure the GitHub environment **prod-tenants**, restrict deployment branches
    to `main`, and set its variable **APP_URL** to the HTTPS frontend origin
    (for example `https://app.example.com`, without a path or query).
-3. Set backend **PROVISIONING_GITHUB_REPOSITORY** to the exact `owner/repository`.
+3. Set backend **PROVISIONING_GITHUB_REPOSITORY** to the repository segment of
+   GitHub's OIDC subject: `owner/repository` for legacy subjects or
+   `owner@owner-id/repository@repository-id` for immutable subjects. The subject
+   retains those IDs; repository and workflow claims use the plain names.
    Terraform supplies `github_repository` and `${environment}-tenants`; production
    uses `environment = "prod"`. Blank repository disables provisioning.
 4. Defaults are `PROVISIONING_GITHUB_ENVIRONMENT=prod-tenants`,
