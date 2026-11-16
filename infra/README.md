@@ -10,7 +10,7 @@ gateway endpoint); `data` (private PostgreSQL 17, S3, runtime secret); `service`
 Identity settings are wired into the backend ECS task. The task role can create,
 set a password on, and compensate deletion of users only in that pool. It cannot
 manage pools, clients, roles or approval grants. Local seed users never enter
-Terraform/state. Configure `mcp_callback_urls` with registered HTTPS callbacks to
+Terraform/state. Configure `mcp_callback_urls` with registered HTTPS or local loopback callbacks to
 enable the separate authorization-code client; the adapter must use PKCE. Its
 client ID is classified as AI-originated by the backend. See
 [backend identity contract](../apps/backend/AUTH.md).

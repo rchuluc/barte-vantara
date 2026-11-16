@@ -32,4 +32,8 @@ export async function proxy(request: NextRequest) {
   return NextResponse.rewrite(url);
 }
 
-export const config = { matcher: ["/((?!api|_next|favicon.ico).*)"] };
+export const config = {
+  matcher: [
+    "/((?!api|_next|favicon.ico|\\.well-known/oauth-protected-resource).*)",
+  ],
+};

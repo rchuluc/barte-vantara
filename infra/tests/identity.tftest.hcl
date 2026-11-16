@@ -24,9 +24,35 @@ run "identity" {
 run "no_unregistered_mcp_client" {
   command = plan
   module { source = "./modules/identity" }
-  variables { name = "vantara-test" }
+  variables {
+    name              = "vantara-test"
+    mcp_callback_urls = []
+  }
   assert {
     condition     = length(aws_cognito_user_pool_client.mcp) == 0
     error_message = "Do not enable MCP without registered callbacks."
   }
+}
+
+run "opencode_loopback_callback" {
+  command = plan
+  module { source = "./modules/identity" }
+  variables {
+    name              = "vantara-test"
+    mcp_callback_urls = ["http://127.0.0.1:19876/callback"]
+  }
+  assert {
+    condition     = aws_cognito_user_pool_client.mcp[0].callback_urls == toset(["http://127.0.0.1:19876/callback"])
+    error_message = "OpenCode must receive codes only at its registered loopback listener."
+  }
+}
+
+run "reject_remote_plaintext_callback" {
+  command = plan
+  module { source = "./modules/identity" }
+  variables {
+    name              = "vantara-test"
+    mcp_callback_urls = ["http://localhost.evil.example:19876/callback"]
+  }
+  expect_failures = [var.mcp_callback_urls]
 }

@@ -91,7 +91,7 @@ variable "github_oidc_provider_arn" {
 }
 
 variable "mcp_callback_urls" {
-  description = "Registered HTTPS callback URLs for delegated MCP OIDC; empty until a connection is configured."
+  description = "Registered HTTPS or local loopback callback URLs for delegated MCP OIDC; empty until a connection is configured."
   type        = list(string)
   default     = []
 }

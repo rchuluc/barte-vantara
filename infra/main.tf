@@ -127,6 +127,8 @@ module "frontend" {
   environment_variables = merge({
     HOSTNAME                      = "0.0.0.0"
     BACKEND_URL                   = "http://backend.${aws_service_discovery_private_dns_namespace.this.name}:8080"
+    COGNITO_ISSUER                = module.identity.issuer
+    COGNITO_MCP_CLIENT_ID         = module.identity.mcp_client_id
     TENANT_NOT_FOUND_REDIRECT_URL = var.tenant_not_found_redirect_url
   }, var.openrouter == null ? {} : { OPENROUTER_MODEL = var.openrouter.model })
   secrets = var.openrouter == null ? {} : { OPENROUTER_API_KEY = var.openrouter.api_key_secret_arn }
