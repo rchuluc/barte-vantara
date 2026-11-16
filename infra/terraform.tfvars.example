@@ -1,5 +1,11 @@
 region = "us-east-1"
 environment = "dev"
+
+# Optional AI assistant. Only the secret ARN belongs here, never the API key.
+# openrouter = {
+#   model              = "your-provider/your-model"
+#   api_key_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:openrouter-REPLACE"
+# }
 # Set explicitly in production: tenant_not_found_redirect_url = "https://www.barte.com"
 tenant_not_found_redirect_url = ""
 state_bucket = "YOUR_EXISTING_TERRAFORM_STATE_BUCKET"

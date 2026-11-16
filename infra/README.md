@@ -152,7 +152,21 @@ task revision, or use that new revision as the deployment template. Otherwise a
 CI deployment based on the running revision retains the previous configuration.
 Migrations are expand/contract; ECS rollback never undoes committed SQL changes.
 
+## OpenRouter runtime configuration
+
+Set the optional `openrouter` object in deployment tfvars with `model` and
+`api_key_secret_arn`. Store the API key itself as a plain string in AWS Secrets
+Manager. Terraform injects `OPENROUTER_MODEL` as a server environment variable and
+`OPENROUTER_API_KEY` through ECS secrets, granting the execution role access to that
+secret. Neither value is a Next.js public variable or a Docker build argument.
+
+Apply the updated frontend task template and point the service at that revision
+before the next image release, as described above. CD clones the running task
+definition, preserving both settings. Include the object in the `prod-plan`
+environment's `TF_VARS_JSON` too. Secret rotation takes effect on newly launched tasks.
+
 ## Live infrastructure PR plans
+
 
 Bootstrap/apply the `planning` module with an operator before enabling live plans.
 Create a **protected `prod-plan` environment with required reviewers**; review the

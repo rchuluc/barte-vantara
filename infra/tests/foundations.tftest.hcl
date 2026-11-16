@@ -79,6 +79,23 @@ run "network_isolation" {
 run "hardened_service" {
   command = plan
   module { source = "./modules/service" }
+
+  override_resource {
+    target          = aws_ecr_repository.this
+    override_during = plan
+    values = {
+      arn = "arn:aws:ecr:us-east-1:123456789012:repository/vantara-test-frontend"
+    }
+  }
+
+  override_resource {
+    target          = aws_cloudwatch_log_group.this
+    override_during = plan
+    values = {
+      arn = "arn:aws:logs:us-east-1:123456789012:log-group:/ecs/vantara-test-frontend"
+    }
+  }
+
   variables {
     name                  = "vantara-test-frontend"
     app                   = "frontend"
@@ -97,7 +114,8 @@ run "hardened_service" {
     datadog_image         = "public.ecr.aws/datadog/agent:7.73.0"
     datadog_site          = "datadoghq.com"
     datadog_secret_arn    = "arn:aws:secretsmanager:us-east-1:123456789012:secret:datadog-123456"
-    environment_variables = {}
+    environment_variables = { OPENROUTER_MODEL = "test/model" }
+    secrets               = { OPENROUTER_API_KEY = "arn:aws:secretsmanager:us-east-1:123456789012:secret:openrouter-123456" }
     public_service        = true
     load_balancer_arn     = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/test/0123456789abcdef"
     certificate_arn       = "arn:aws:acm:us-east-1:123456789012:certificate/01234567-0123-0123-0123-012345678901"
@@ -113,6 +131,20 @@ run "hardened_service" {
   assert {
     condition     = aws_ecr_repository.this.image_tag_mutability == "IMMUTABLE" && aws_ecr_repository.this.image_scanning_configuration[0].scan_on_push
     error_message = "Registry must scan images and prevent release tag overwrites."
+  }
+
+  assert {
+    condition = (
+      contains(jsondecode(aws_ecs_task_definition.this.container_definitions)[0].secrets, { name = "OPENROUTER_API_KEY", valueFrom = var.secrets.OPENROUTER_API_KEY }) &&
+      contains(jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment, { name = "OPENROUTER_MODEL", value = "test/model" }) &&
+      !contains([for item in jsondecode(aws_ecs_task_definition.this.container_definitions)[0].environment : item.name], "OPENROUTER_API_KEY")
+    )
+    error_message = "Inject the API key by secret reference, never as plaintext task configuration."
+  }
+
+  assert {
+    condition     = contains(jsondecode(aws_iam_role_policy.execution.policy).Statement[3].Resource, var.secrets.OPENROUTER_API_KEY)
+    error_message = "Only the execution role must be able to resolve the configured OpenRouter secret."
   }
 }
 

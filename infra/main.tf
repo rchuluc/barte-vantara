@@ -124,11 +124,12 @@ module "frontend" {
   public_service     = true
   load_balancer_arn  = aws_lb.this.arn
   certificate_arn    = var.certificate_arn
-  environment_variables = {
+  environment_variables = merge({
     HOSTNAME                      = "0.0.0.0"
     BACKEND_URL                   = "http://backend.${aws_service_discovery_private_dns_namespace.this.name}:8080"
     TENANT_NOT_FOUND_REDIRECT_URL = var.tenant_not_found_redirect_url
-  }
+  }, var.openrouter == null ? {} : { OPENROUTER_MODEL = var.openrouter.model })
+  secrets = var.openrouter == null ? {} : { OPENROUTER_API_KEY = var.openrouter.api_key_secret_arn }
 }
 
 module "migration" {

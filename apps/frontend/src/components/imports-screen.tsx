@@ -12,6 +12,7 @@ import {
   importPermission,
 } from "@/lib/import-contracts";
 import { ImportUpload } from "@/components/import-upload";
+import { ImportAssistant } from "@/components/import-assistant";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -40,7 +41,7 @@ export function ImportsScreen() {
   );
 
   return (
-    <div className="import-workspace mx-auto flex max-w-6xl flex-col gap-8">
+    <div className="import-workspace mx-auto flex max-w-6xl flex-col gap-8 pb-20">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -201,6 +202,7 @@ export function ImportsScreen() {
           Next imports
         </Button>
       </div>
+      {kinds.includes("payable") && <ImportAssistant />}
     </div>
   );
 }

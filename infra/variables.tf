@@ -36,6 +36,23 @@ variable "backend_image" { type = string }
 
 variable "frontend_image" { type = string }
 
+variable "openrouter" {
+  description = "Optional server-side assistant configuration. Store the API key in Secrets Manager, never in Terraform variables."
+  type = object({
+    model              = string
+    api_key_secret_arn = string
+  })
+  default = null
+
+  validation {
+    condition = var.openrouter == null ? true : (
+      length(trimspace(var.openrouter.model)) > 0 &&
+      can(regex("^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$", var.openrouter.api_key_secret_arn))
+    )
+    error_message = "OpenRouter requires a model and a Secrets Manager API-key ARN."
+  }
+}
+
 variable "tenant_not_found_redirect_url" {
   description = "Optional absolute HTTP(S) URL for browser requests with no matching tenant; empty preserves 404 responses."
   type        = string

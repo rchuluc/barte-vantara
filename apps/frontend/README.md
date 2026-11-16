@@ -111,6 +111,27 @@ can be resumed from the detail screen. Files whose original upload never persist
 must be uploaded again. Tests cover the UI-to-service flow and proxy boundaries
 with controlled responses; live ingestion additionally requires the backend and S3.
 
+### AI import assistant
+
+The bottom-right **Import assistant** is available only on `/imports` to members
+with `draft_payable`. It uses AI SDK UI (`useChat`) and the existing server-side
+OpenRouter configuration: `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`.
+
+The **Ask Vantara** launcher opens a nonmodal chat beside the imports page. Paste
+source text or attach a UTF-8 TXT, EML, or MD file (up to 64 KB) and send a message.
+The assistant automatically calls the existing evidence extractor when needed,
+summarizes its findings, and asks about missing information in the user's language.
+There is one composer: Enter sends, Shift+Enter inserts a newline, and the paperclip
+attaches files. PDF/image extraction is not supported; CSV/XLSX still use **New import**.
+
+This is an in-memory review, not a persisted import or financial posting. Closing
+the panel preserves the conversation; leaving the page or choosing **New chat**
+clears it. Requests require the same tenant authentication, active membership,
+permission, and same-origin checks as other imports. Conversations are bounded
+to 40 messages and 256 KiB per request, with a 60-second inference timeout, at most
+two agent steps, and one extraction per turn. The extraction tool selects an exact
+original user message; the model cannot replace the source with invented text.
+
 ## Data and authentication
 
 - Components use `src/hooks/use-workspace.ts`; hooks own TanStack Query state.

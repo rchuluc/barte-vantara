@@ -129,6 +129,7 @@ export function prepareExtraction(original: string) {
 
 export async function runExtraction(
   attempt: ReturnType<typeof prepareExtraction>,
+  signal?: AbortSignal,
 ) {
   const openrouter = createOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
@@ -150,7 +151,12 @@ export async function runExtraction(
       output: Output.object({ schema: extractionSchema }),
       maxOutputTokens: attempt.settings.maxOutputTokens,
       maxRetries: attempt.settings.maxRetries,
-      abortSignal: AbortSignal.timeout(attempt.settings.timeoutMs),
+      abortSignal: signal
+        ? AbortSignal.any([
+            signal,
+            AbortSignal.timeout(attempt.settings.timeoutMs),
+          ])
+        : AbortSignal.timeout(attempt.settings.timeoutMs),
     });
 
     rawOutput = result.text;
@@ -202,6 +208,9 @@ export async function runExtraction(
   };
 }
 
-export async function extractUnstructured(original: string) {
-  return runExtraction(prepareExtraction(original));
+export async function extractUnstructured(
+  original: string,
+  signal?: AbortSignal,
+) {
+  return runExtraction(prepareExtraction(original), signal);
 }

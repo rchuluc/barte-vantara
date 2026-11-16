@@ -3,6 +3,7 @@ import { z } from "zod";
 import { tenantByHost } from "@/lib/tenants";
 import { backend } from "@/services/backend";
 import { importProxy } from "@/services/import-proxy";
+import { importAssistant } from "@/services/import-assistant";
 import {
   ApiError,
   statusMessage,
@@ -79,9 +80,31 @@ async function handle(request: NextRequest, context: Context) {
       (method === "POST" || method === "PATCH") &&
       !(["imports", "imports/preview"].includes(path) && method === "POST")
     ) {
-      const text = await request.text();
+      const limit = path === "imports/assistant" ? 262144 : 32768;
+      const reader = request.body?.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      let size = 0;
 
-      if (text.length > 32768) throw new ApiError(400, statusMessage(400));
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            size += value.byteLength;
+            if (size > limit) {
+              await reader.cancel();
+              throw new ApiError(400, statusMessage(400));
+            }
+            text += decoder.decode(value, { stream: true });
+          }
+          text += decoder.decode();
+        } finally {
+          reader.releaseLock();
+        }
+      }
+
+      if (text.length > limit) throw new ApiError(400, statusMessage(400));
 
       try {
         body = JSON.parse(text);
@@ -181,6 +204,13 @@ async function handle(request: NextRequest, context: Context) {
       throw new ApiError(403, statusMessage(403));
     if (path === "me" && method === "GET")
       return NextResponse.json(me, { headers: noStore });
+    if (path === "imports/assistant" && method === "POST") {
+      const response = await importAssistant(body, me, request.signal);
+      return new NextResponse(response.body, {
+        status: response.status,
+        headers: response.headers,
+      });
+    }
     if (resource[0] === "imports" || path === "business-units")
       return await importProxy(request, resource, body, me, options);
     if (!me.permissions.includes("configure"))
