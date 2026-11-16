@@ -6,6 +6,15 @@ checked against active database membership; the header grants no authority.
 
 ## Workflow
 
+The UI first calls `POST /imports/preview` with raw file bytes and the same query
+parameters. This temporary preview detects Protheus/Omie as `receivable` and Itaú
+as `bank` from headers, overriding the selected kind for recognized formats.
+Custom files retain the selected kind. Permission for the detected kind is checked
+before returning the preview. `targetFields` contains only fields for that dataset.
+On confirmation, the UI uploads using the preview's detected `dataset_kind`.
+Itaú requires a destination bank account and produces `finance.bank_entry` records,
+with source/import evidence, rather than `finance.title` receivables.
+
 1. `POST /imports?filename=report.csv&kind=receivable` with the **raw file body**
    (`application/octet-stream`). Supported kinds: `receivable`, `payable`, `bank`.
    Send a fresh UUID in `Idempotency-Key` and retain it across network retries.

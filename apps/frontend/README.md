@@ -72,6 +72,45 @@ the browser keeps `/login`, `/dashboard`, `/users`, or `/profile`. Explicit
 `/[tenant]/...` URLs are rejected. The name is the text logo and document title; the primary
 color drives branded surfaces/actions, with automatically contrasted text.
 
+## Data imports
+
+Open `/imports` from the workspace navigation. Screens call `use-imports` hooks,
+which call the `imports` service; the tenant-scoped API proxy validates responses
+and keeps credentials on the server.
+
+1. Choose **New import**, a dataset, and a nonempty CSV/XLSX file (up to 100 MiB).
+2. Review detected columns, required fields, destination units, dates, and currency.
+3. Choose **Confirm and import**. TanStack Query runs sequential batches (up to
+   500 records per request), updating the progress bar after each batch.
+4. Review rejected rows and save corrections in the dialog; processing resumes
+   automatically. Failed requests stop the loop and offer a retry.
+
+Keep the detail page open while importing. Leaving stops scheduling further
+batches; reopening an unfinished import resumes from its persisted progress.
+
+**Preview file** only reads a temporary server file and returns headers plus up to
+20 sample rows. The temporary file is deleted when the request ends; no database
+import or S3 object is created. The browser retains the original `File` in memory
+until **Confirm and import** is clicked, when it is sent to the durable ingestion
+endpoint. Closing/reloading the browser loses an unconfirmed preview. **All imports**
+asks before discarding it. Refreshing or closing the tab while a preview is active
+triggers the browser's leave warning. Continuing discards the preview; reopening
+its URL shows recovery guidance to select the file again. After confirmation, failed operations remain retryable
+using the same upload ID.
+
+Upload requires `draft_receivable`, `draft_payable`, or `bank` permission for the
+chosen dataset. The administrator role alone grants configuration, not upload
+access. Existing backend unit/account authorization still applies to every import.
+Bank imports currently take an existing bank-account UUID because the backend does
+not expose an account-list endpoint. Custom multi-unit files require explicit name
+mapping; Protheus unit names use the backend's automatic resolution.
+
+Use a backend build containing the ingestion migrations and `/api/imports` routes.
+Network failures can be retried with the same upload key; interrupted preparation
+can be resumed from the detail screen. Files whose original upload never persisted
+must be uploaded again. Tests cover the UI-to-service flow and proxy boundaries
+with controlled responses; live ingestion additionally requires the backend and S3.
+
 ## Data and authentication
 
 - Components use `src/hooks/use-workspace.ts`; hooks own TanStack Query state.

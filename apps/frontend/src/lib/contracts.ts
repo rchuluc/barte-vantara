@@ -76,7 +76,9 @@ export function statusMessage(status: number): string {
     case 404:
       return "The requested resource could not be found.";
     case 409:
-      return "This change conflicts with an existing user or access scope.";
+      return "This change conflicts with the current state or access scope. Refresh and try again.";
+    case 413:
+      return "The file is too large. Choose a file up to 100 MiB.";
     case 429:
       return "Too many requests. Wait a moment and try again.";
     default:

@@ -527,7 +527,7 @@ class ImportController(
                     "headers" to json.readTree(job["headers"].toString()),
                     "mapping" to json.readTree(job["mapping"].toString()),
                     "suggestedColumns" to ImportNormalization.profiles[job["platform"]].orEmpty(),
-                    "targetFields" to ImportNormalization.fields,
+                    "targetFields" to ImportNormalization.fieldsFor(job["dataset_kind"] as String),
                 )
         }
 

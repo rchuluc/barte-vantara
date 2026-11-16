@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { tenantByHost } from "@/lib/tenants";
 import { backend } from "@/services/backend";
+import { importProxy } from "@/services/import-proxy";
 import {
   ApiError,
   statusMessage,
@@ -74,7 +75,10 @@ async function handle(request: NextRequest, context: Context) {
 
     let body: unknown;
 
-    if (method === "POST" || method === "PATCH") {
+    if (
+      (method === "POST" || method === "PATCH") &&
+      !(["imports", "imports/preview"].includes(path) && method === "POST")
+    ) {
       const text = await request.text();
 
       if (text.length > 32768) throw new ApiError(400, statusMessage(400));
@@ -177,6 +181,8 @@ async function handle(request: NextRequest, context: Context) {
       throw new ApiError(403, statusMessage(403));
     if (path === "me" && method === "GET")
       return NextResponse.json(me, { headers: noStore });
+    if (resource[0] === "imports" || path === "business-units")
+      return await importProxy(request, resource, body, me, options);
     if (!me.permissions.includes("configure"))
       throw new ApiError(403, statusMessage(403));
 

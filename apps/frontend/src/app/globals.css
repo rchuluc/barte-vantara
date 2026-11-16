@@ -95,6 +95,23 @@ input {
 .skip-link:focus {
   transform: translateY(0);
 }
+.import-workspace :is(button, input, select, [data-slot="button"]) {
+  min-height: 44px;
+}
+
+.import-workspace [data-slot="dialog-close"] {
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .import-workspace :is(input, select) {
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

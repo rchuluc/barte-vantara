@@ -69,6 +69,8 @@ const admin = await request("signin", "POST", {
 });
 assert.ok(admin.permissions.includes("configure"));
 assert.equal((await request("me")).id, admin.id);
+assert.ok(Array.isArray(await request("imports?limit=20&offset=0")));
+assert.ok(Array.isArray(await request("business-units")));
 assert.ok((await request("users/roles")).some(({ role }) => role === "ap"));
 assert.ok((await request("users?limit=20&offset=0")).length >= 6);
 await request(`users/${admin.id}`, "PATCH", { active: false }, 403);
@@ -118,5 +120,5 @@ assert.ok(!member.permissions.includes("configure"));
 await request("users", "GET", undefined, 403);
 await request("logout", "POST", undefined, 204);
 console.log(
-  "Live smoke passed: signin, identity, admin CRUD, self-admin denial, member denial, logout.",
+  "Live smoke passed: signin, identity, import history, business units, admin CRUD, self-admin denial, member denial, logout.",
 );

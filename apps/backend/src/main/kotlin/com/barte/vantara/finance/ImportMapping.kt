@@ -43,6 +43,14 @@ internal object ImportNormalization {
             "description",
             "direction",
         )
+
+    fun fieldsFor(kind: String): Set<String> =
+        if (kind == "bank") {
+            setOf("booking_date", "description", "external_id", "amount", "direction", "unit")
+        } else {
+            fields - setOf("booking_date", "description", "direction")
+        }
+
     val profiles =
         mapOf(
             "omie" to

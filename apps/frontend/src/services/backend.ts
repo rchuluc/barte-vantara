@@ -10,12 +10,17 @@ export async function backend<T>(
     body?: unknown;
     token?: string;
     tenantId?: string;
+    rawBody?: ArrayBuffer;
+    idempotencyKey?: string;
   } = {},
 ): Promise<T> {
   const headers = new Headers({ "Content-Type": "application/json" });
 
   if (options.token) headers.set("Authorization", `Bearer ${options.token}`);
   if (options.tenantId) headers.set("X-Tenant-Id", options.tenantId);
+  if (options.rawBody) headers.set("Content-Type", "application/octet-stream");
+  if (options.idempotencyKey)
+    headers.set("Idempotency-Key", options.idempotencyKey);
 
   let response: Response;
 
@@ -26,9 +31,12 @@ export async function backend<T>(
         method: options.method ?? "GET",
         headers,
         body:
-          options.body === undefined ? undefined : JSON.stringify(options.body),
+          options.rawBody ??
+          (options.body === undefined
+            ? undefined
+            : JSON.stringify(options.body)),
         cache: "no-store",
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(options.rawBody ? 110000 : 15000),
       },
     );
   } catch {

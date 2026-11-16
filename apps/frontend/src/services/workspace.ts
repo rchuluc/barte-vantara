@@ -11,22 +11,32 @@ import {
   type PatchUser,
 } from "@/lib/contracts";
 
-async function request<T>(
+export async function request<T>(
   path: string,
   schema: z.ZodType<T>,
   method = "GET",
   body?: unknown,
+  upload?: { file: File; key: string },
 ): Promise<T> {
   let response: Response;
 
   try {
     response = await fetch(`/api/${path}`, {
       method,
-      headers: { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: upload
+        ? {
+            "Content-Type": "application/octet-stream",
+            "Idempotency-Key": upload.key,
+          }
+        : { "Content-Type": "application/json" },
+      body: upload
+        ? upload.file
+        : body === undefined
+          ? undefined
+          : JSON.stringify(body),
       credentials: "same-origin",
       cache: "no-store",
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(upload ? 120000 : 20000),
     });
   } catch {
     throw new ApiError(

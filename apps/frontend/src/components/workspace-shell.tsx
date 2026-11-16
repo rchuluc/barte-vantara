@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, LogOut, UserRound, Users } from "lucide-react";
+import {
+  LayoutDashboard,
+  LogOut,
+  UserRound,
+  Users,
+  FileSpreadsheet,
+} from "lucide-react";
 import { useMe, useLogout } from "@/hooks/use-workspace";
 import { useTenant } from "@/components/workspace-provider";
 import { Button } from "@/components/ui/button";
@@ -33,6 +39,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const admin = me.data.permissions.includes("configure");
   const links = [
     { path: "dashboard", label: "Overview", icon: LayoutDashboard },
+    { path: "imports", label: "Data imports", icon: FileSpreadsheet },
     admin
       ? { path: "users", label: "User management", icon: Users }
       : { path: "profile", label: "My profile", icon: UserRound },
@@ -65,13 +72,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               <Button
                 key={path}
                 asChild
-                variant={pathname.endsWith(`/${path}`) ? "secondary" : "ghost"}
+                variant={
+                  pathname.split("/").includes(path) ? "secondary" : "ghost"
+                }
                 className="justify-start"
               >
                 <Link
                   href={`/${path}`}
                   aria-current={
-                    pathname.endsWith(`/${path}`) ? "page" : undefined
+                    pathname.split("/").includes(path) ? "page" : undefined
                   }
                 >
                   <Icon data-icon="inline-start" aria-hidden="true" />

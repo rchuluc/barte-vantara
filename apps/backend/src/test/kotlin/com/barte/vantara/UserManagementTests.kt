@@ -51,6 +51,100 @@ class UserManagementTests {
     private val json = JsonMapper.builder().build()
 
     @Test
+    fun `preview reads CSV samples without creating a database import or S3 version`() {
+        val token = login("ar")
+        val id = UUID.randomUUID()
+        val csv = "Name,Due,Total\n" + (1..25).joinToString("\n") { "Customer $it,2026-07-20,10" }
+        val preview = body(preview(token, id, "sample.csv", csv.toByteArray()))
+        assertEquals(id.toString(), preview["id"].asText())
+        assertEquals(25, preview["total"].asInt())
+        assertEquals(20, preview["rows"].size())
+        assertEquals("custom", preview["platform"].asText())
+        assertEquals(0, owner.queryForObject("SELECT count(*) FROM finance.ingestion WHERE id=?", Int::class.java, id))
+        assertEquals(0, owner.queryForObject("SELECT count(*) FROM finance.ingestion_row WHERE ingestion_id=?", Int::class.java, id))
+        assertTrue(s3.listObjectVersions { it.bucket("vantara-ingestion-local").prefix("$tenant/$id/") }.versions().isEmpty())
+        assertEquals(404, request("GET", "/imports/$id", token).statusCode())
+        assertEquals(404, request("GET", "/imports/$id/file", token).statusCode())
+        val omie = "customer_name,tax_id,invoice_ref,due_date,amount,paid_flag\nAcme,,I1,2026-07-20,10,n"
+        assertEquals("omie", body(preview(token, UUID.randomUUID(), "omie.csv", omie.toByteArray()))["platform"].asText())
+    }
+
+    @Test
+    fun `preview parses XLSX and never persists rejected or unauthorized previews`() {
+        val token = login("ar")
+        val bytes = java.io.ByteArrayOutputStream()
+        org.apache.poi.xssf.usermodel.XSSFWorkbook().use { book ->
+            val sheet = book.createSheet()
+            sheet.createRow(0).createCell(0).setCellValue("Name")
+            sheet.createRow(1).createCell(0).setCellValue("Acme")
+            book.write(bytes)
+        }
+        assertEquals(1, body(preview(token, UUID.randomUUID(), "sample.xlsx", bytes.toByteArray()))["total"].asInt())
+        for ((filename, content) in listOf(
+            "empty.csv" to "",
+            "blank.csv" to ",Name\n",
+            "duplicate.csv" to "Name,Name\n",
+            "bad.xlsx" to "invalid",
+        )) {
+            val id = UUID.randomUUID()
+            assertEquals(400, preview(token, id, filename, content.toByteArray()).statusCode())
+            assertEquals(0, owner.queryForObject("SELECT count(*) FROM finance.ingestion WHERE id=?", Int::class.java, id))
+            assertTrue(s3.listObjectVersions { it.bucket("vantara-ingestion-local").prefix("$tenant/$id/") }.versions().isEmpty())
+        }
+        for ((name, kind) in listOf("file.pdf" to "receivable", "" to "bank", "file.csv" to "unknown", "a".repeat(201) to "receivable")) {
+            assertEquals(400, preview(token, UUID.randomUUID(), name, "Name".toByteArray(), kind).statusCode())
+        }
+        assertEquals(401, preview(null, UUID.randomUUID(), "file.csv", "Name".toByteArray()).statusCode())
+        assertEquals(403, preview(login("fpa"), UUID.randomUUID(), "file.csv", "Name".toByteArray()).statusCode())
+        assertEquals(403, preview(token, UUID.randomUUID(), "file.csv", "Name".toByteArray(), "bank").statusCode())
+        assertEquals(413, preview(token, UUID.randomUUID(), "large.csv", ByteArray(100 * 1024 * 1024 + 1)).statusCode())
+    }
+
+    @Test
+    fun `recognized receivable previews override payable selection but custom previews retain it`() {
+        val token = login("ar")
+        val member = owner.queryForObject("SELECT id FROM finance.membership WHERE email='ar@vantara.com.br'", UUID::class.java)!!
+        owner.update("INSERT INTO finance.member_role VALUES (?,?,'ap')", tenant, member)
+        try {
+            for (filename in listOf("01_contas_a_receber_protheus_jul2026.csv", "02_titulos_unidade_norte_omie_jul2026.csv")) {
+                val bytes =
+                    Files.readAllBytes(
+                        java.nio.file.Path
+                            .of("../../data_pack/$filename"),
+                    )
+                val detected = body(preview(token, UUID.randomUUID(), filename, bytes, "payable"))
+                assertEquals("receivable", detected["dataset_kind"].asText())
+                assertFalse(detected["targetFields"].toList().any { it.asText() == "booking_date" })
+            }
+            assertEquals(
+                "payable",
+                body(
+                    preview(token, UUID.randomUUID(), "custom.csv", "Name,Total\nAcme,10".toByteArray(), "payable"),
+                )["dataset_kind"].asText(),
+            )
+        } finally {
+            owner.update("DELETE FROM finance.member_role WHERE member_id=? AND role='ap'", member)
+        }
+        val omie = "customer_name,tax_id,invoice_ref,due_date,amount,paid_flag\nAcme,,I1,2026-07-20,10,n"
+        assertEquals(403, preview(login("ap"), UUID.randomUUID(), "omie.csv", omie.toByteArray(), "payable").statusCode())
+    }
+
+    private fun preview(
+        token: String?,
+        id: UUID,
+        filename: String,
+        bytes: ByteArray,
+        kind: String = "receivable",
+    ): HttpResponse<String> {
+        val builder =
+            HttpRequest
+                .newBuilder(URI("http://localhost:$port/api/imports/preview?filename=$filename&kind=$kind"))
+                .header("Idempotency-Key", id.toString())
+        token?.let { builder.header("Authorization", "Bearer $it") }
+        return http.send(builder.POST(HttpRequest.BodyPublishers.ofByteArray(bytes)).build(), HttpResponse.BodyHandlers.ofString())
+    }
+
+    @Test
     fun `pagination rejects both limits outside the supported range`() {
         val token = login("ar")
         val id = body(upload(token, "pagination.csv", "Name,Due,Total\nA,2026-07-20,1\n"), 201)["id"].asText()
@@ -593,7 +687,23 @@ class UserManagementTests {
                 java.nio.file.Path
                     .of("../../data_pack/03_extrato_bancario_jul2026.csv"),
             )
-        val uploaded = body(upload(token, "bank.csv", csv, "bank"), 201)
+        val memberId =
+            owner.queryForObject(
+                "SELECT id FROM finance.membership WHERE email='reconciliation@vantara.com.br'",
+                UUID::class.java,
+            )!!
+        owner.update("INSERT INTO finance.member_role VALUES (?,?,'ar')", tenant, memberId)
+        val detected =
+            try {
+                body(preview(token, UUID.randomUUID(), "bank.csv", csv.toByteArray(), "receivable"))
+            } finally {
+                owner.update("DELETE FROM finance.member_role WHERE member_id=? AND role='ar'", memberId)
+            }
+        assertEquals("bank", detected["dataset_kind"].asText())
+        assertTrue(detected["targetFields"].toList().any { it.asText() == "booking_date" })
+        assertFalse(detected["targetFields"].toList().any { it.asText() == "due_on" })
+        assertEquals(403, preview(login("ar"), UUID.randomUUID(), "bank.csv", csv.toByteArray(), "receivable").statusCode())
+        val uploaded = body(upload(token, "bank.csv", csv, detected["dataset_kind"].asText()), 201)
         val id = uploaded["id"].asText()
         assertEquals("itau", uploaded["platform"].asText())
         assertEquals(403, request("POST", "/imports/$id/confirm", token, """{"unitId":"$otherUnit","accountId":"$account"}""").statusCode())
@@ -603,6 +713,22 @@ class UserManagementTests {
         assertEquals(0, done["rejected"].asInt())
         val entries = body(request("GET", "/imports/$id/results", token))
         assertEquals(18, entries.size())
+        assertEquals(
+            18,
+            owner.queryForObject(
+                "SELECT count(*) FROM finance.bank_entry b JOIN finance.ingestion_row r ON r.result_id=b.id WHERE r.ingestion_id=?",
+                Int::class.java,
+                UUID.fromString(id),
+            ),
+        )
+        assertEquals(
+            0,
+            owner.queryForObject(
+                "SELECT count(*) FROM finance.title t JOIN finance.ingestion_row r ON r.result_id=t.id WHERE r.ingestion_id=?",
+                Int::class.java,
+                UUID.fromString(id),
+            ),
+        )
         assertEquals("debit", entries[5]["direction"].asText())
         assertEquals(124000L, entries[5]["amount_minor"].asLong())
         assertEquals("000012345678", entries[0]["external_ref"].asText())
