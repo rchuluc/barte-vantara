@@ -546,6 +546,50 @@ class UserManagementTests {
     }
 
     @Test
+    fun `assistant inbox import persists one open payable and retains unstructured source`() {
+        val token = login("ap")
+        val source =
+            java.nio.file.Files
+                .readString(
+                    java.nio.file.Path
+                        .of("../../data_pack/04_caixa_de_entrada_contas_a_pagar.txt"),
+                )
+        val headers = listOf("party_name", "document_ref", "due_on", "amount", "source_type") + (1..8).map { "source_$it" }
+        val cells = listOf("Sao Jorge Embalagens", "88231", "2026-07-20", "18900.00", "agent_unstructured", source) + List(7) { "" }
+        val csv = listOf(headers, cells).joinToString("\r\n") { row -> row.joinToString(",") { "\"${it.replace("\"", "\"\"")}\"" } }
+        val id = body(upload(token, "assistant-import.csv", csv, "payable"), 201)["id"].asText()
+        assertEquals(source, body(request("GET", "/imports/$id/rows", token))[0]["cells"][5].asText())
+        body(
+            request(
+                "POST",
+                "/imports/$id/confirm",
+                token,
+                """{"unitId":"$unit","currency":"BRL","dateFormat":"uuuu-MM-dd","decimal":".","columns":{"party_name":"party_name","document_ref":"document_ref","due_on":"due_on","amount":"amount"}}""",
+            ),
+        )
+        repeat(2) {
+            val processed = body(request("POST", "/imports/$id/process", token))
+            assertEquals("completed", processed["state"].asText())
+            assertEquals(1, processed["processed"].asInt())
+            assertEquals(0, processed["rejected"].asInt())
+        }
+        val titles = body(request("GET", "/imports/$id/results", token))
+        assertEquals(1, titles.size())
+        val title = titles[0]
+        assertEquals("Sao Jorge Embalagens", title["party_name"].asText())
+        assertEquals("88231", title["document_ref"].asText())
+        assertEquals("2026-07-20", title["due_on"].asText())
+        assertEquals("BRL", title["currency"].asText())
+        assertEquals(1890000L, title["original_amount_minor"].asLong())
+        assertEquals(1890000L, title["current_amount_minor"].asLong())
+        assertEquals("open", title["status"].asText())
+        assertEquals("payable", title["direction"].asText())
+        assertTrue(title["issued_on"].isNull)
+        assertEquals(csv, request("GET", "/imports/$id/file", token).body())
+        assertEquals(404, request("GET", "/imports/$id/results", login("ar")).statusCode())
+    }
+
+    @Test
     fun `upload and mapping reject malformed requests before financial writes`() {
         val token = login("ar")
         for ((name, csv) in listOf(

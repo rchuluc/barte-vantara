@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import {
+  DefaultChatTransport,
+  isToolUIPart,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+} from "ai";
 import { Dialog } from "radix-ui";
 import {
   ArrowUp,
@@ -16,11 +20,16 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  assistantImportSchema,
+  assistantImportResultSchema,
+} from "@/lib/assistant-import";
+import { unitsSchema } from "@/lib/import-contracts";
 
 const transport = new DefaultChatTransport({ api: "/api/imports/assistant" });
 const suggestions = ["What can I upload?", "Help me prepare an import"];
 
-export function ImportAssistant() {
+export function ImportAssistant({ onImported }: { onImported?: () => void }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [fileError, setFileError] = useState("");
@@ -42,9 +51,40 @@ export function ImportAssistant() {
     stop,
     clearError,
     setMessages,
-  } = useChat({ transport });
+    addToolApprovalResponse,
+  } = useChat({
+    transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+  });
   const busy = status === "submitted" || status === "streaming";
+  const pendingApproval = messages.some((message) =>
+    message.parts.some(
+      (part) => isToolUIPart(part) && part.state === "approval-requested",
+    ),
+  );
+  const units = messages.flatMap((message) =>
+    message.parts.flatMap((part) => {
+      if (
+        part.type !== "tool-listBusinessUnits" ||
+        part.state !== "output-available"
+      )
+        return [];
+      return unitsSchema.safeParse(part.output).data ?? [];
+    }),
+  );
+  const imported = messages
+    .flatMap((message) => message.parts)
+    .filter(
+      (part) =>
+        part.type === "tool-createImport" && part.state === "output-available",
+    ).length;
+  const notified = useRef(0);
   const full = messages.length >= 40;
+
+  useEffect(() => {
+    if (imported > notified.current) onImported?.();
+    notified.current = imported;
+  }, [imported, onImported]);
 
   useEffect(() => {
     const element = scroll.current;
@@ -60,7 +100,7 @@ export function ImportAssistant() {
   );
 
   function send(text: string) {
-    if (!text.trim() || busy || reading || full) return;
+    if (!text.trim() || busy || reading || full || pendingApproval) return;
     if (text.length > 64000) {
       setFileError(
         "Your message and attachment are too long. Keep them under 64,000 characters combined.",
@@ -213,16 +253,159 @@ export function ImportAssistant() {
                     <span className="sr-only">
                       {message.role === "user" ? "You" : "Vantara"}
                     </span>
-                    {message.parts.map((part, index) =>
-                      part.type === "text" ? (
+                    {message.parts.map((part, index) => {
+                      if (part.type === "tool-createImport") {
+                        const proposal = assistantImportSchema.safeParse(
+                          part.input,
+                        );
+                        const result = assistantImportResultSchema.safeParse(
+                          part.state === "output-available"
+                            ? part.output
+                            : null,
+                        );
+                        return (
+                          <div
+                            key={index}
+                            className="mt-3 space-y-3 rounded-xl border border-border p-3 text-sm"
+                          >
+                            {proposal.success && (
+                              <>
+                                <p className="font-medium">
+                                  {part.state === "output-available"
+                                    ? "Import result"
+                                    : `Import ${proposal.data.rows.length} payable record(s)?`}
+                                </p>
+                                <p>
+                                  Destination:{" "}
+                                  {units.find(
+                                    (unit) => unit.id === proposal.data.unitId,
+                                  )?.name ?? proposal.data.unitId}
+                                </p>
+                                <ul className="space-y-2">
+                                  {proposal.data.rows.map((row, rowIndex) => (
+                                    <li key={rowIndex} className="break-words">
+                                      {row.party_name} · {row.document_ref}
+                                      <br />
+                                      {proposal.data.currency} {row.amount} ·
+                                      Due {row.due_on}
+                                    </li>
+                                  ))}
+                                </ul>
+                                <p className="text-xs text-muted-foreground">
+                                  Creates open payables and saves the original
+                                  source. No payment or invoice approval is
+                                  performed.
+                                </p>
+                              </>
+                            )}
+                            {part.state === "approval-requested" && (
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  disabled={busy || !proposal.success}
+                                  onClick={() =>
+                                    void addToolApprovalResponse({
+                                      id: part.approval.id,
+                                      approved: true,
+                                    })
+                                  }
+                                >
+                                  Confirm import
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    void addToolApprovalResponse({
+                                      id: part.approval.id,
+                                      approved: false,
+                                    })
+                                  }
+                                >
+                                  Cancel import
+                                </Button>
+                              </div>
+                            )}
+                            {part.state === "approval-responded" && (
+                              <p role="status">
+                                {part.approval.approved
+                                  ? "Import confirmed. Saving…"
+                                  : "Import cancelled."}
+                              </p>
+                            )}
+                            {part.state === "output-denied" && (
+                              <p>Import cancelled. Nothing was saved.</p>
+                            )}
+                            {part.state === "output-error" && (
+                              <>
+                                <p role="alert">
+                                  The import could not be completed. Retry this
+                                  import to safely resume.
+                                </p>
+                                {part.approval && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      setMessages((current) =>
+                                        current.map((item) => ({
+                                          ...item,
+                                          parts: item.parts.map((candidate) =>
+                                            candidate === part
+                                              ? {
+                                                  ...part,
+                                                  state: "approval-requested",
+                                                  errorText: undefined,
+                                                  approval: {
+                                                    ...part.approval!,
+                                                    approved: undefined,
+                                                    reason: undefined,
+                                                  },
+                                                }
+                                              : candidate,
+                                          ),
+                                        })),
+                                      )
+                                    }
+                                  >
+                                    Retry import
+                                  </Button>
+                                )}
+                              </>
+                            )}
+                            {result.success && (
+                              <div role="status">
+                                {part.approval?.approved && (
+                                  <p className="mb-1 font-medium">
+                                    Confirmed by you
+                                  </p>
+                                )}
+                                <p>
+                                  {result.data.processed - result.data.rejected}{" "}
+                                  imported · {result.data.rejected} rejected.{" "}
+                                  <a
+                                    className="underline"
+                                    href={`/imports/${result.data.id}`}
+                                  >
+                                    Review import
+                                  </a>
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return part.type === "text" ? (
                         <p
                           key={index}
                           className="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm leading-6"
                         >
                           {part.text}
                         </p>
-                      ) : null,
-                    )}
+                      ) : null;
+                    })}
                   </div>
                 </div>
               ))}
@@ -307,7 +490,7 @@ export function ImportAssistant() {
                 id="assistant-input"
                 value={input}
                 maxLength={64000}
-                disabled={busy || reading || full}
+                disabled={busy || reading || full || pendingApproval}
                 rows={2}
                 placeholder="Ask anything, or paste your source…"
                 className="max-h-36 min-h-16 w-full resize-none border-0 bg-transparent px-3 py-2 text-base leading-6 outline-none focus-visible:outline-none disabled:opacity-50 sm:text-sm"
@@ -357,7 +540,12 @@ export function ImportAssistant() {
                     size="icon"
                     className="size-11 rounded-xl"
                     aria-label="Send message"
-                    disabled={(!input.trim() && !attachment) || reading || full}
+                    disabled={
+                      (!input.trim() && !attachment) ||
+                      reading ||
+                      full ||
+                      pendingApproval
+                    }
                   >
                     <ArrowUp className="size-5" />
                   </Button>
@@ -409,7 +597,7 @@ export function ImportAssistant() {
               </p>
             )}
             <p className="mt-2.5 text-center text-xs text-muted-foreground">
-              Review only · Nothing is saved or posted.
+              Review first · Imports are saved only after you confirm.
             </p>
           </form>
         </Dialog.Content>

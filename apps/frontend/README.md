@@ -124,12 +124,32 @@ summarizes its findings, and asks about missing information in the user's langua
 There is one composer: Enter sends, Shift+Enter inserts a newline, and the paperclip
 attaches files. PDF/image extraction is not supported; CSV/XLSX still use **New import**.
 
-This is an in-memory review, not a persisted import or financial posting. Closing
-the panel preserves the conversation; leaving the page or choosing **New chat**
-clears it. Requests require the same tenant authentication, active membership,
+After parsing, the assistant asks whether to import, resolves missing fields, and
+uses `listBusinessUnits` to select a destination. `createImport` presents up to 100
+payable rows (supplier, document, exact decimal amount, currency, and full due date).
+**Confirm import** resumes the server tool; **Cancel import** saves nothing.
+The AI SDK signs approval requests with a session-, user-, and tenant-bound secret
+and verifies them before execution. Approval is a UI action, never an inferred
+payment/approval claim from source text. All imported payables start open.
+Successful tool results include `confirmation=user_approved` so the assistant
+can acknowledge the button-based confirmation even without a typed chat reply.
+The completed review also displays **Confirmed by you**.
+
+The tool reuses backend upload → mapping confirmation → processing. A generated
+CSV preserves normalized fields and the exact source in eight bounded text cells,
+marked `source_type=agent_unstructured`. The existing pipeline stores ingestion
+rows, source records, and structured payable titles under its existing RLS rules.
+The original download is this generated CSV, including the source text. The import
+uses the existing `custom` platform and rule-based normalization. No new financial
+posting or settlement is inferred. Results link to the import detail page and refresh
+history. **Retry import** reuses the same approved call and backend idempotency key.
+
+Chat history itself is in memory. Closing the panel preserves it; leaving the page
+or choosing **New chat** clears it, but saved imports remain in history.
+Requests require the same tenant authentication, active membership,
 permission, and same-origin checks as other imports. Conversations are bounded
 to 40 messages and 256 KiB per request, with a 60-second inference timeout, at most
-two agent steps, and one extraction per turn. The extraction tool selects an exact
+four agent steps, and one extraction per turn. The extraction tool selects an exact
 original user message; the model cannot replace the source with invented text.
 
 ## Data and authentication

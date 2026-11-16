@@ -202,7 +202,13 @@ export function ImportsScreen() {
           Next imports
         </Button>
       </div>
-      {kinds.includes("payable") && <ImportAssistant />}
+      {kinds.includes("payable") && (
+        <ImportAssistant
+          onImported={() => {
+            void query.refetch();
+          }}
+        />
+      )}
     </div>
   );
 }

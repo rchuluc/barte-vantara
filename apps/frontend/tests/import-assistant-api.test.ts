@@ -3,8 +3,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { MockLanguageModelV4 } from "ai/test";
 import type { LanguageModelV4StreamPart } from "@ai-sdk/provider";
+import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
 import { POST } from "@/app/api/[...resource]/route";
-import { importer } from "./import-fixtures";
+import { importer, job, unitId } from "./import-fixtures";
 
 const mocks = vi.hoisted(() => ({ extract: vi.fn(), model: vi.fn() }));
 vi.mock("@/services/unstructured-extraction", () => ({
@@ -105,7 +106,7 @@ function agentModel(messageNumber = 1, duplicate = false) {
 beforeEach(() => {
   vi.stubEnv("OPENROUTER_MODEL", "test/model");
   vi.stubEnv("OPENROUTER_API_KEY", "private-key");
-  fetchMock.mockReset().mockResolvedValue(Response.json(importer));
+  fetchMock.mockReset().mockImplementation(async () => Response.json(importer));
   vi.stubGlobal("fetch", fetchMock);
   mocks.extract.mockReset().mockResolvedValue({
     status: "succeeded",
@@ -307,4 +308,231 @@ it("does not expose provider errors in chat streams", async () => {
   const text = await (await call({ messages: [message] })).text();
   expect(text).toContain("assistant is unavailable");
   expect(text).not.toContain("private-key");
+});
+
+const proposedImport = {
+  unitId,
+  currency: "BRL",
+  rows: [
+    {
+      sourceMessageNumber: 1,
+      party_name: "Supplier",
+      document_ref: "001",
+      due_on: "2026-12-01",
+      amount: "12.00",
+    },
+  ],
+};
+
+async function proposeImport() {
+  mocks.model.mockReturnValue(
+    new MockLanguageModelV4({
+      doStream: async () =>
+        response([
+          {
+            type: "tool-call",
+            toolCallId: "save-1",
+            toolName: "createImport",
+            input: JSON.stringify(proposedImport),
+          },
+          {
+            type: "finish",
+            finishReason: { unified: "tool-calls", raw: "tool_calls" },
+            usage,
+          },
+        ]),
+    }),
+  );
+  const text = await (await call()).text();
+  const chunks: UIMessageChunk[] = text
+    .split("\n")
+    .filter((line) => line.startsWith("data: ") && !line.includes("[DONE]"))
+    .map((line) => JSON.parse(line.slice(6)));
+  let message: UIMessage | undefined;
+  for await (const current of readUIMessageStream({
+    stream: new ReadableStream({
+      start(controller) {
+        chunks.forEach((chunk) => controller.enqueue(chunk));
+        controller.close();
+      },
+    }),
+  }))
+    message = current;
+  if (!message) throw new Error("Missing proposal");
+  expect(message.id, JSON.stringify(message)).not.toBe("");
+  return message;
+}
+
+function respondToApproval(proposal: UIMessage, approved: boolean) {
+  return {
+    ...proposal,
+    parts: proposal.parts.map((part) =>
+      part.type === "tool-createImport" && part.state === "approval-requested"
+        ? {
+            ...part,
+            state: "approval-responded",
+            approval: { ...part.approval, approved },
+          }
+        : part,
+    ),
+  };
+}
+
+function saveModel() {
+  const model = new MockLanguageModelV4({
+    doStream: async () =>
+      response([
+        { type: "text-start", id: "done" },
+        { type: "text-delta", id: "done", delta: "Import result reviewed." },
+        { type: "text-end", id: "done" },
+        {
+          type: "finish",
+          finishReason: { unified: "stop", raw: "stop" },
+          usage,
+        },
+      ]),
+  });
+  mocks.model.mockReturnValue(model);
+  return model;
+}
+
+it("pauses the write tool for signed human approval, then saves structured records through the backend", async () => {
+  const proposal = await proposeImport();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(proposal.parts).toContainEqual(
+    expect.objectContaining({
+      type: "tool-createImport",
+      state: "approval-requested",
+      approval: expect.objectContaining({ signature: expect.any(String) }),
+    }),
+  );
+  fetchMock.mockImplementation(async (url, options) => {
+    const path = String(url);
+    if (path.endsWith("/me")) return Response.json(importer);
+    if (path.endsWith("/business-units"))
+      return Response.json([{ id: unitId, name: "Main" }]);
+    const id =
+      new Headers(options?.headers).get("Idempotency-Key") ??
+      path.split("/").at(-2);
+    return Response.json({
+      ...job,
+      id,
+      state: path.endsWith("/process")
+        ? "completed"
+        : path.endsWith("/confirm")
+          ? "processing"
+          : "mapping",
+      processed: path.endsWith("/process") ? 1 : 0,
+    });
+  });
+  const model = saveModel();
+  const result = await (
+    await call({ messages: [message, respondToApproval(proposal, true)] })
+  ).text();
+  expect(result).toContain('"state":"completed"');
+  expect(result).toContain('"confirmation":"user_approved"');
+  expect(JSON.stringify(model.doStreamCalls[0].prompt)).toContain(
+    '"confirmation":"user_approved"',
+  );
+  const upload = fetchMock.mock.calls.find(([url]) =>
+    String(url).includes("filename=assistant-import.csv"),
+  );
+  expect(upload).toBeDefined();
+  expect(new TextDecoder().decode(upload![1]!.body as ArrayBuffer)).toContain(
+    '"Supplier","001","2026-12-01","12.00"',
+  );
+  expect(new TextDecoder().decode(upload![1]!.body as ArrayBuffer)).toContain(
+    "NF 001: R$ 12,00",
+  );
+  expect(new Headers(upload![1]!.headers).get("Authorization")).toBe(
+    "Bearer token",
+  );
+});
+
+it("cancelling an import never calls a backend write", async () => {
+  const proposal = await proposeImport();
+  saveModel();
+  const result = await (
+    await call({ messages: [message, respondToApproval(proposal, false)] })
+  ).text();
+  expect(result).toContain("tool-output-denied");
+  expect(result).not.toContain('"confirmation":"user_approved"');
+  expect(
+    fetchMock.mock.calls.every(([url]) => String(url).endsWith("/me")),
+  ).toBe(true);
+});
+
+it("rejects altered approved inputs before a backend write", async () => {
+  const proposal = respondToApproval(await proposeImport(), true);
+  proposal.parts = proposal.parts.map((part) =>
+    part.type === "tool-createImport"
+      ? { ...part, input: { ...proposedImport, currency: "USD" } }
+      : part,
+  );
+  saveModel();
+  await (await call({ messages: [message, proposal] })).text();
+  expect(
+    fetchMock.mock.calls.every(([url]) => String(url).endsWith("/me")),
+  ).toBe(true);
+});
+
+it("lists authorized business units through a read-only agent tool", async () => {
+  fetchMock.mockImplementation(async (url) =>
+    Response.json(
+      String(url).endsWith("/me") ? importer : [{ id: unitId, name: "Main" }],
+    ),
+  );
+  const model = new MockLanguageModelV4({
+    doStream: [
+      response([
+        {
+          type: "tool-call",
+          toolCallId: "units",
+          toolName: "listBusinessUnits",
+          input: "{}",
+        },
+        {
+          type: "finish",
+          finishReason: { unified: "tool-calls", raw: "tool_calls" },
+          usage,
+        },
+      ]),
+      response([
+        { type: "text-start", id: "question" },
+        {
+          type: "text-delta",
+          id: "question",
+          delta: "Which business unit should receive this import?",
+        },
+        { type: "text-end", id: "question" },
+        {
+          type: "finish",
+          finishReason: { unified: "stop", raw: "stop" },
+          usage,
+        },
+      ]),
+    ],
+  });
+  mocks.model.mockReturnValue(model);
+  expect(await (await call()).text()).toContain('"name":"Main"');
+  expect(
+    new Headers(fetchMock.mock.calls[1][1]?.headers).get("Authorization"),
+  ).toBe("Bearer token");
+  expect(fetchMock.mock.calls[1][1]?.method).toBe("GET");
+});
+
+it("rejects malformed tool history before inference", async () => {
+  const response = await call({
+    messages: [
+      message,
+      {
+        id: "invalid",
+        role: "assistant",
+        parts: [
+          { type: "tool-createImport", state: "approval-responded", input: {} },
+        ],
+      },
+    ],
+  });
+  expect(response.status).toBe(400);
 });

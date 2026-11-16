@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { ImportAssistant } from "@/components/import-assistant";
+import { importId, unitId } from "./import-fixtures";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -25,11 +26,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function open() {
+function open(onImported?: () => void) {
   render(
     <>
       <button>Page action</button>
-      <ImportAssistant />
+      <ImportAssistant onImported={onImported} />
     </>,
   );
   fireEvent.click(screen.getByRole("button", { name: "Import assistant" }));
@@ -210,4 +211,161 @@ it("stops an in-flight response and enables the composer again", async () => {
   );
   expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+function approvalResponse() {
+  return createUIMessageStreamResponse({
+    stream: createUIMessageStream({
+      execute: ({ writer }) => {
+        writer.write({ type: "start", messageId: "proposal" });
+        writer.write({
+          type: "tool-input-available",
+          toolCallId: "units",
+          toolName: "listBusinessUnits",
+          input: {},
+        });
+        writer.write({
+          type: "tool-output-available",
+          toolCallId: "units",
+          output: [{ id: unitId, name: "Main" }],
+        });
+        writer.write({
+          type: "tool-input-available",
+          toolCallId: "save",
+          toolName: "createImport",
+          input: {
+            unitId,
+            currency: "BRL",
+            rows: [
+              {
+                sourceMessageNumber: 1,
+                party_name: "Supplier",
+                document_ref: "0001",
+                amount: "12.00",
+                due_on: "2026-12-01",
+              },
+            ],
+          },
+        });
+        writer.write({
+          type: "tool-approval-request",
+          toolCallId: "save",
+          approvalId: "approval",
+          signature: "signed",
+        });
+      },
+    }),
+  });
+}
+
+it.each([true, false])(
+  "shows a record review and resumes only after explicit confirmation (%s)",
+  async (approved) => {
+    fetchMock
+      .mockImplementationOnce(async () => approvalResponse())
+      .mockImplementationOnce(async () =>
+        createUIMessageStreamResponse({
+          stream: createUIMessageStream({
+            execute: ({ writer }) => {
+              writer.write({ type: "start", messageId: "proposal" });
+              if (approved)
+                writer.write({
+                  type: "tool-output-available",
+                  toolCallId: "save",
+                  output: {
+                    id: importId,
+                    state: "completed",
+                    total: 1,
+                    processed: 1,
+                    rejected: 0,
+                  },
+                });
+              else
+                writer.write({
+                  type: "tool-output-denied",
+                  toolCallId: "save",
+                });
+            },
+          }),
+        }),
+      );
+    const onImported = vi.fn();
+    open(onImported);
+    type("Import invoice 0001");
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Confirm import" }),
+      ).toBeEnabled(),
+    );
+    expect(screen.getByRole("listitem")).toHaveTextContent(
+      "Supplier · 0001BRL 12.00 · Due 2026-12-01",
+    );
+    expect(screen.getByText("Destination: Main")).toBeInTheDocument();
+    expect(screen.getByLabelText("Message Vantara")).toBeDisabled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: approved ? "Confirm import" : "Cancel import",
+      }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const body = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+    expect(body.messages.at(-1).parts).toContainEqual(
+      expect.objectContaining({
+        state: "approval-responded",
+        approval: { id: "approval", signature: "signed", approved },
+      }),
+    );
+    if (approved)
+      expect(
+        await screen.findByRole("link", { name: "Review import" }),
+      ).toHaveAttribute("href", `/imports/${importId}`);
+    else
+      expect(
+        await screen.findByText("Import cancelled. Nothing was saved."),
+      ).toBeInTheDocument();
+    expect(onImported).toHaveBeenCalledTimes(approved ? 1 : 0);
+    if (approved) {
+      expect(screen.getByText("Confirmed by you")).toBeInTheDocument();
+      expect(screen.getByText("Import result")).toBeInTheDocument();
+      expect(
+        screen.queryByText("Import 1 payable record(s)?"),
+      ).not.toBeInTheDocument();
+    }
+  },
+);
+
+it("offers a retry of the same approved call after a save error", async () => {
+  fetchMock
+    .mockImplementationOnce(async () => approvalResponse())
+    .mockImplementationOnce(async () =>
+      createUIMessageStreamResponse({
+        stream: createUIMessageStream({
+          execute: ({ writer }) => {
+            writer.write({ type: "start", messageId: "proposal" });
+            writer.write({
+              type: "tool-output-error",
+              toolCallId: "save",
+              errorText: "Unavailable",
+            });
+          },
+        }),
+      }),
+    );
+  open();
+  type("Import invoice 0001");
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Confirm import" }),
+    ).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Confirm import" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Retry import" })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Retry import" }));
+  expect(screen.getByRole("button", { name: "Confirm import" })).toBeEnabled();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });
