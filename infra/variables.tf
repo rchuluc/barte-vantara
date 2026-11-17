@@ -95,3 +95,9 @@ variable "mcp_callback_urls" {
   type        = list(string)
   default     = []
 }
+
+variable "mcp_resource_urls" {
+  description = "Exact HTTPS MCP endpoint URLs registered as Cognito resource audiences."
+  type        = set(string)
+  default     = []
+}

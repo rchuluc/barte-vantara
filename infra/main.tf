@@ -4,6 +4,7 @@ module "identity" {
   source            = "./modules/identity"
   name              = local.name
   mcp_callback_urls = var.mcp_callback_urls
+  mcp_resource_urls = var.mcp_resource_urls
 }
 
 module "planning" {

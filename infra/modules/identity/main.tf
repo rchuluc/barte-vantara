@@ -46,6 +46,13 @@ resource "aws_cognito_user_pool_client" "web" {
 
 # Delegated user OIDC only. Never grant a machine client-credentials identity
 # financial authority; this client's verified tokens are always AI-originated.
+resource "aws_cognito_resource_server" "mcp" {
+  for_each     = var.mcp_resource_urls
+  user_pool_id = aws_cognito_user_pool.this.id
+  identifier   = each.value
+  name         = "${var.name}-mcp"
+}
+
 resource "aws_cognito_user_pool_client" "mcp" {
   count                                = length(var.mcp_callback_urls) > 0 ? 1 : 0
   name                                 = "${var.name}-mcp"
@@ -62,7 +69,7 @@ resource "aws_cognito_user_pool_client" "mcp" {
   access_token_validity                = 15
   id_token_validity                    = 15
   refresh_token_validity               = 1
-  read_attributes                      = ["email"]
+  read_attributes                      = ["email", "email_verified"]
   write_attributes                     = ["name"]
 
   token_validity_units {
@@ -73,7 +80,15 @@ resource "aws_cognito_user_pool_client" "mcp" {
 }
 
 resource "aws_cognito_user_pool_domain" "this" {
-  count        = length(var.mcp_callback_urls) > 0 ? 1 : 0
-  domain       = var.name
-  user_pool_id = aws_cognito_user_pool.this.id
+  count                 = length(var.mcp_callback_urls) > 0 ? 1 : 0
+  domain                = var.name
+  user_pool_id          = aws_cognito_user_pool.this.id
+  managed_login_version = 2
+}
+
+resource "aws_cognito_managed_login_branding" "mcp" {
+  count                       = length(var.mcp_callback_urls) > 0 ? 1 : 0
+  user_pool_id                = aws_cognito_user_pool.this.id
+  client_id                   = aws_cognito_user_pool_client.mcp[0].id
+  use_cognito_provided_values = true
 }

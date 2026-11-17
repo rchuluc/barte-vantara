@@ -1,0 +1,17 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "vantara": {
+        "type": "remote",
+        "url": "https://vantara.wura.io/api/mcp",
+        "oauth": {
+          "client_id": "59veub477lrafbsbttgo21so72",
+          "scope": "openid email",
+          "callback_port": 19876,
+          "redirect_uri": "http://127.0.0.1:19876/callback"
+        }
+      }
+    }
+  }
+}

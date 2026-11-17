@@ -6,6 +6,7 @@ run "identity" {
   variables {
     name              = "vantara-test"
     mcp_callback_urls = ["https://mcp.example.com/callback"]
+    mcp_resource_urls = ["https://workspace.example.com/api/mcp"]
   }
   assert {
     condition     = aws_cognito_user_pool.this.admin_create_user_config[0].allow_admin_create_user_only && aws_cognito_user_pool.this.deletion_protection == "ACTIVE"
@@ -18,6 +19,26 @@ run "identity" {
   assert {
     condition     = aws_cognito_user_pool_client.mcp[0].allowed_oauth_flows == toset(["code"]) && !aws_cognito_user_pool_client.mcp[0].generate_secret
     error_message = "MCP must use delegated authorization code with PKCE, never client credentials."
+  }
+
+  assert {
+    condition     = alltrue([for attribute in ["email", "email_verified"] : contains(aws_cognito_user_pool_client.mcp[0].read_attributes, attribute)])
+    error_message = "Cognito's email scope requires read access to email and email_verified or token exchange fails with invalid_grant."
+  }
+
+  assert {
+    condition     = aws_cognito_user_pool_domain.this[0].managed_login_version == 2
+    error_message = "MCP resource-bound access tokens require managed login, not classic hosted UI."
+  }
+
+  assert {
+    condition     = aws_cognito_managed_login_branding.mcp[0].use_cognito_provided_values
+    error_message = "API-created MCP clients need a branding style to render managed login."
+  }
+
+  assert {
+    condition     = aws_cognito_resource_server.mcp["https://workspace.example.com/api/mcp"].identifier == "https://workspace.example.com/api/mcp"
+    error_message = "Register the exact MCP audience; unregistered resource binding fails at Cognito token exchange."
   }
 }
 

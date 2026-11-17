@@ -47,9 +47,14 @@ tokens cannot authenticate this MCP endpoint. There is no local auth bypass.
 ### Deployed Cognito connection
 
 1. Set Terraform `mcp_callback_urls` to the **MCP client's exact HTTPS or local loopback callback
-   URLs**. The existing identity module creates a public Cognito client with
-   authorization-code flow and a hosted login domain. Apply through the normal
-   infrastructure workflow.
+   URLs**, and `mcp_resource_urls` to each exact workspace MCP URL, such as
+   `https://vantara.wura.io/api/mcp`. The identity module creates a public Cognito
+   client, registers the resource audiences, and enables managed login with the
+   default branding. Apply through the normal infrastructure workflow.
+   Resource binding requires the resource-server registration: in live testing,
+   an unregistered audience returned `invalid_grant`, while registering the same
+   URL produced an access token with the expected `aud`. The `email` scope also
+   requires client read access to both `email` and `email_verified`.
 2. Configure the MCP client with the `cognito_mcp_client_id` Terraform output.
    Cognito does not provide dynamic client registration; use a client supporting
    pre-registered OAuth client IDs. No client secret is required.

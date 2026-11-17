@@ -21,3 +21,7 @@ budget_email = "platform@example.com"
 monthly_budget_usd = "150"
 desired_count = 1
 multi_az = false
+
+# Configure both when enabling delegated MCP authentication.
+# mcp_callback_urls = ["http://127.0.0.1:19876/callback"]
+# mcp_resource_urls = ["https://workspace.example.com/api/mcp"]
