@@ -40,6 +40,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const links = [
     { path: "dashboard", label: "Overview", icon: LayoutDashboard },
     { path: "imports", label: "Data imports", icon: FileSpreadsheet },
+    { path: "reconciliation", label: "Conciliação", icon: FileSpreadsheet },
     admin
       ? { path: "users", label: "User management", icon: Users }
       : { path: "profile", label: "My profile", icon: UserRound },

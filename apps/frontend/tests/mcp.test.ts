@@ -210,6 +210,12 @@ it("initializes a real stateless MCP transport and lists role-authorized tools",
     listed.result.tools.map((tool: { name: string }) => tool.name),
   ).toEqual([
     "getIdentity",
+    "listImports",
+    "listBankEntries",
+    "listTitles",
+    "listReconciliations",
+    "getFinancialDetails",
+    "findMatchCandidates",
     "listBusinessUnits",
     "extractEvidence",
     "createImport",
@@ -239,6 +245,144 @@ it("preserves identity and rereads changed roles on the next request", async () 
   expect(
     mocks.backend.mock.calls.some(([path]) => path.startsWith("imports")),
   ).toBe(false);
+});
+
+it("lists scoped imports using bounded search filters", async () => {
+  const original = mocks.backend.getMockImplementation()!;
+  mocks.backend.mockImplementation((path, ...args) =>
+    path === "imports?name=invoice&from=2026-01-01&limit=10"
+      ? Promise.resolve([job])
+      : original(path, ...args),
+  );
+  const response = await (
+    await call("listImports", {
+      name: "invoice",
+      from: "2026-01-01",
+      limit: 10,
+    })
+  ).json();
+  expect(response.result.isError).not.toBe(true);
+  expect(JSON.parse(response.result.content[0].text)).toEqual([job]);
+  for (const args of [
+    { limit: 101 },
+    { offset: -1 },
+    { from: "yesterday" },
+    { approval: true },
+  ]) {
+    expect(
+      (await (await call("listImports", args)).json()).result.isError,
+    ).toBe(true);
+  }
+});
+
+it("lets receivable importers read imports and destinations without payable creation tools", async () => {
+  const original = mocks.backend.getMockImplementation()!;
+  mocks.backend.mockImplementation((path, ...args) =>
+    path === "me"
+      ? Promise.resolve({
+          ...importer,
+          actorKind: "ai",
+          permissions: ["draft_receivable"],
+        })
+      : original(path, ...args),
+  );
+  const listed = await (await POST(request(rpc("tools/list")))).json();
+  const names = listed.result.tools.map((tool: { name: string }) => tool.name);
+  expect(names).toEqual(
+    expect.arrayContaining(["listImports", "getImport", "listBusinessUnits"]),
+  );
+  expect(names).not.toContain("createImport");
+  expect(names).not.toContain("proposeReconciliation");
+  expect(
+    (await (await call("getImport", { id: job.id })).json()).result.isError,
+  ).not.toBe(true);
+});
+
+it("exposes scoped financial reads and creates only pending proposals for reconcilers", async () => {
+  const original = mocks.backend.getMockImplementation()!;
+  mocks.backend.mockImplementation((path, ...args) => {
+    if (path === "me")
+      return Promise.resolve({
+        ...importer,
+        actorKind: "ai",
+        permissions: ["propose_match"],
+      });
+    if (path.startsWith("reconciliation/search/")) return Promise.resolve([]);
+    if (path === `reconciliation/${unitId}`)
+      return Promise.resolve({ id: input.idempotencyKey });
+    return original(path, ...args);
+  });
+  const listed = await (await POST(request(rpc("tools/list")))).json();
+  const names = listed.result.tools.map((tool: { name: string }) => tool.name);
+  expect(names).toEqual(
+    expect.arrayContaining([
+      "listBankEntries",
+      "listTitles",
+      "listReconciliations",
+      "getFinancialDetails",
+      "findMatchCandidates",
+      "proposeReconciliation",
+    ]),
+  );
+  expect(
+    names.some((name: string) => /approve|review|confirm/i.test(name)),
+  ).toBe(false);
+  for (const name of ["listBankEntries", "listTitles", "listReconciliations"]) {
+    expect(
+      JSON.parse((await (await call(name)).json()).result.content[0].text),
+    ).toEqual([]);
+  }
+  expect(
+    JSON.parse(
+      (
+        await (
+          await call("findMatchCandidates", {
+            bankId: unitId,
+            name: "Acme",
+            minAmountMinor: 1250,
+          })
+        ).json()
+      ).result.content[0].text,
+    ),
+  ).toEqual([]);
+  const args = {
+    bankId: unitId,
+    id: input.idempotencyKey,
+    allocations: [{ titleId: tenantId, amountMinor: 1250 }],
+  };
+  const proposed = await (await call("proposeReconciliation", args)).json();
+  expect(JSON.parse(proposed.result.content[0].text)).toMatchObject({
+    id: input.idempotencyKey,
+    approvalStatus: "pending",
+    reviewPath: "/vantara/reconciliation",
+  });
+  expect(mocks.backend).toHaveBeenCalledWith(
+    `reconciliation/${unitId}`,
+    expect.anything(),
+    expect.objectContaining({
+      method: "POST",
+      token,
+      tenantId,
+      body: {
+        id: input.idempotencyKey,
+        action: "draft",
+        allocations: args.allocations,
+      },
+    }),
+  );
+  for (const extra of [
+    { action: "confirmed" },
+    { origin: "human" },
+    { allocations: [] },
+  ]) {
+    expect(
+      (
+        await (
+          await call("proposeReconciliation", { ...args, ...extra })
+        ).json()
+      ).result.isError,
+    ).toBe(true);
+  }
 });
 
 it.each([

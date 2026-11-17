@@ -25,6 +25,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import tools.jackson.databind.json.JsonMapper
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.time.LocalDate
 import java.util.UUID
 
 @RestController
@@ -43,11 +44,50 @@ class ImportController(
         @RequestHeader("X-Tenant-Id", required = false) tenant: UUID?,
         @RequestParam(defaultValue = "0") offset: Int,
         @RequestParam(defaultValue = "50") limit: Int,
+        @RequestParam(required = false) name: String?,
+        @RequestParam(required = false) state: String?,
+        @RequestParam(required = false) kind: String?,
+        @RequestParam(required = false) from: LocalDate?,
+        @RequestParam(required = false) to: LocalDate?,
+        @RequestParam(required = false) minAmountMinor: Long?,
+        @RequestParam(required = false) maxAmountMinor: Long?,
     ): List<Map<String, Any?>> =
         access.transaction(jwt, tenant) { _, _ ->
             requireInput(offset >= 0 && limit in 1..100, "Invalid pagination")
+            requireInput(name == null || name.length <= 200, "Invalid name")
+            requireInput(state == null || state in setOf("uploading", "mapping", "processing", "completed", "failed"), "Invalid state")
+            requireInput(kind == null || kind in setOf("bank", "payable", "receivable"), "Invalid kind")
+            requireInput(from == null || to == null || from <= to, "Invalid date range")
+            requireInput(listOfNotNull(minAmountMinor, maxAmountMinor).all { it in 0..9007199254740991L }, "Invalid amount")
+            requireInput(minAmountMinor == null || maxAmountMinor == null || minAmountMinor <= maxAmountMinor, "Invalid amount range")
             jdbc.queryForList(
-                "SELECT id,filename,dataset_kind,platform,state,total,processed,rejected,created_at FROM finance.ingestion ORDER BY created_at DESC,id LIMIT ? OFFSET ?",
+                """SELECT id,filename,dataset_kind,platform,state,total,processed,rejected,created_at FROM finance.ingestion
+                WHERE (?::text IS NULL OR strpos(lower(filename),lower(?))>0)
+                AND (?::text IS NULL OR state=?) AND (?::text IS NULL OR dataset_kind=?)
+                AND (?::date IS NULL OR created_at>=?::date)
+                AND (?::date IS NULL OR created_at<(?::date + interval '1 day'))
+                AND ((?::bigint IS NULL AND ?::bigint IS NULL) OR EXISTS (
+                    SELECT 1 FROM finance.ingestion_row row
+                    LEFT JOIN finance.title_position t ON t.tenant_id=row.tenant_id AND t.id=row.result_id
+                    LEFT JOIN finance.bank_position b ON b.tenant_id=row.tenant_id AND b.id=row.result_id
+                    WHERE row.ingestion_id=ingestion.id AND row.tenant_id=ingestion.tenant_id
+                    AND coalesce(t.current_amount_minor,b.amount_minor)>=coalesce(?::bigint,0)
+                    AND coalesce(t.current_amount_minor,b.amount_minor)<=coalesce(?::bigint,9007199254740991)))
+                ORDER BY created_at DESC,id LIMIT ? OFFSET ?""",
+                name,
+                name,
+                state,
+                state,
+                kind,
+                kind,
+                from,
+                from,
+                to,
+                to,
+                minAmountMinor,
+                maxAmountMinor,
+                minAmountMinor,
+                maxAmountMinor,
                 limit,
                 offset,
             )

@@ -70,6 +70,33 @@ class UserManagementTests {
     }
 
     @Test
+    fun `import search filters names dates states and validates pagination`() {
+        val token = login("ap", mcpClient)
+        val name = "search-${UUID.randomUUID()}.csv"
+        val id = body(upload(token, name, "Name,Due,Total\nSearch Vendor,2026-07-20,12.50", "payable"), 201)["id"].asText()
+        val found = body(request("GET", "/imports?name=$name&state=mapping&kind=payable&from=2020-01-01&to=2099-01-01", token))
+        assertEquals(listOf(id), found.toList().map { it["id"].asText() }, found.toString())
+        assertEquals(0, body(request("GET", "/imports?name=$name&state=completed", token)).size())
+        assertEquals(0, body(request("GET", "/imports?name=$name&to=2020-01-01", token)).size())
+        assertEquals(0, body(request("GET", "/imports?name=$name", login("fpa", mcpClient))).size())
+        for (query in listOf("limit=101", "offset=-1", "from=2027-01-01&to=2026-01-01", "state=unknown")) {
+            assertEquals(400, request("GET", "/imports?$query", token).statusCode())
+        }
+        body(
+            request(
+                "POST",
+                "/imports/$id/confirm",
+                token,
+                """{"unitId":"$unit","dateFormat":"uuuu-MM-dd","decimal":".","columns":{"party_name":"Name","due_on":"Due","amount":"Total"}}""",
+            ),
+        )
+        body(request("POST", "/imports/$id/process", token))
+        assertEquals(1, body(request("GET", "/imports?name=$name&minAmountMinor=1250&maxAmountMinor=1250", token)).size())
+        assertEquals(0, body(request("GET", "/imports?name=$name&minAmountMinor=1251", token)).size())
+        assertEquals(400, request("GET", "/imports?minAmountMinor=-1", token).statusCode())
+    }
+
+    @Test
     fun `preview parses XLSX and never persists rejected or unauthorized previews`() {
         val token = login("ar")
         val bytes = java.io.ByteArrayOutputStream()
@@ -1327,6 +1354,364 @@ class UserManagementTests {
         assertEquals(401, request("GET", "/me", login("ap", rogueClient)).statusCode())
         val token = result.accessToken()
         assertEquals(401, request("GET", "/me", token.substringBeforeLast('.') + ".AAAAAAAA").statusCode())
+    }
+
+    @Test
+    fun `reconciliation uses imported evidence and enforces independent review balances and account scope`() {
+        val ar = login("ar")
+        val reconciler = login("reconciliation")
+        val reviewer = login("controllership")
+        val reviewerId = UUID.fromString(body(request("GET", "/me", reviewer))["id"].asText())
+        val grantedUnits = mutableSetOf<UUID>()
+        owner.update("INSERT INTO finance.approval_scope VALUES (?,?,?,'review_reconciliation')", tenant, reviewerId, unit)
+
+        fun importFile(
+            name: String,
+            kind: String,
+            token: String,
+        ): List<String> {
+            val text =
+                Files.readString(
+                    java.nio.file.Path
+                        .of("../../data_pack/$name"),
+                )
+            val id = body(upload(token, name, text, kind), 201)["id"].asText()
+            body(request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit","accountId":"$account"}"""))
+            body(request("POST", "/imports/$id/process", token))
+            return body(request("GET", "/imports/$id/results?limit=100", token)).toList().map { it["id"].asText() }
+        }
+        try {
+            val titleIds = importFile("01_contas_a_receber_protheus_jul2026.csv", "receivable", ar)
+            importFile("02_titulos_unidade_norte_omie_jul2026.csv", "receivable", ar)
+            val bankIds = importFile("03_extrato_bancario_jul2026.csv", "bank", reconciler)
+            val workspace = body(request("GET", "/reconciliation", ar))
+            assertFalse(workspace["banks"].any { it["direction"].asText() == "debit" })
+            assertTrue(body(request("GET", "/reconciliation", reconciler))["banks"].any { it["direction"].asText() == "debit" })
+            assertEquals(0, body(request("GET", "/reconciliation", login("fpa")))["titles"].size())
+            assertEquals(403, request("GET", "/reconciliation", ar, tenantId = UUID.randomUUID()).statusCode())
+            val bank = bankIds[3]
+            val first = titleIds[2]
+            val second = titleIds[9]
+            assertTrue(workspace["candidates"].any { it["bankId"].asText() == bank && it["titleId"].asText() == first })
+            val details = body(request("GET", "/reconciliation/banks/$bank/details", ar))
+            assertEquals("record:5", details["source"]["locator"].asText())
+            assertTrue(details["source"]["raw_text"].asText().contains("DOCE PONTO"))
+            assertEquals(400, request("GET", "/reconciliation/unknown/$bank/details", ar).statusCode())
+            assertEquals(404, request("GET", "/reconciliation/banks/${UUID.randomUUID()}/details", ar).statusCode())
+
+            fun proposal(
+                bankId: String,
+                entries: String,
+                action: String = "draft",
+                id: UUID = UUID.randomUUID(),
+            ): Pair<UUID, HttpResponse<String>> =
+                id to request("POST", "/reconciliation/$bankId", ar, """{"id":"$id","action":"$action","allocations":[$entries]}""")
+
+            fun allocation(
+                id: String,
+                value: Long,
+            ): String = """{"titleId":"$id","amountMinor":$value}"""
+            assertEquals(
+                403,
+                request(
+                    "POST",
+                    "/reconciliation/$bank",
+                    reviewer,
+                    """{"id":"${UUID.randomUUID()}","action":"pending"}""",
+                ).statusCode(),
+            )
+            assertEquals(400, proposal(bank, "", "unknown").second.statusCode())
+            assertEquals(400, proposal(bank, "", "rejected_suggestion").second.statusCode())
+            assertEquals(
+                400,
+                proposal(bank, (1..101).joinToString(",") { allocation(UUID.randomUUID().toString(), 1) }).second.statusCode(),
+            )
+            assertEquals(404, proposal(bank, allocation(UUID.randomUUID().toString(), 1)).second.statusCode())
+            assertEquals(
+                200,
+                request(
+                    "POST",
+                    "/reconciliation/${bankIds[5]}",
+                    reconciler,
+                    """{"id":"${UUID.randomUUID()}","action":"pending"}""",
+                ).statusCode(),
+            )
+            assertEquals(
+                404,
+                request(
+                    "POST",
+                    "/reconciliation/decisions/${UUID.randomUUID()}/review",
+                    reviewer,
+                    """{"decision":"confirmed"}""",
+                ).statusCode(),
+            )
+            assertEquals(
+                400,
+                request(
+                    "POST",
+                    "/reconciliation/decisions/${UUID.randomUUID()}/review",
+                    reviewer,
+                    """{"decision":"unknown"}""",
+                ).statusCode(),
+            )
+            body(
+                request(
+                    "POST",
+                    "/reconciliation/${bankIds[0]}",
+                    ar,
+                    """{"id":"${UUID.randomUUID()}","action":"rejected_suggestion","rejectedTitleId":"${titleIds[0]}"}""",
+                ),
+            )
+            assertEquals(
+                400,
+                request(
+                    "POST",
+                    "/reconciliation/${bankIds[0]}",
+                    ar,
+                    """{"id":"${UUID.randomUUID()}","action":"rejected_suggestion","rejectedTitleId":"$first"}""",
+                ).statusCode(),
+            )
+            assertEquals(400, proposal(bank, allocation(first, 4278051)).second.statusCode())
+            assertEquals(400, proposal(bank, allocation(first, 0)).second.statusCode())
+            assertEquals(400, proposal(bank, allocation(first, 1) + "," + allocation(first, 1)).second.statusCode())
+            assertEquals(400, proposal(bank, "").second.statusCode())
+            assertEquals(404, proposal(bankIds[5], allocation(first, 1)).second.statusCode())
+            val (id, saved) = proposal(bank, allocation(first, 4278050) + "," + allocation(second, 485000))
+            body(saved)
+            assertEquals(2, owner.queryForObject("SELECT count(*) FROM finance.allocation WHERE decision_id=?", Int::class.java, id))
+            assertEquals(
+                403,
+                request("POST", "/reconciliation/decisions/$id/review", reviewer, """{"decision":"confirmed"}""").statusCode(),
+            )
+            for (titleId in titleIds) {
+                val titleUnit =
+                    owner.queryForObject(
+                        "SELECT unit_id FROM finance.title WHERE id=?",
+                        UUID::class.java,
+                        UUID.fromString(titleId),
+                    )
+                if (owner.update("INSERT INTO finance.member_unit VALUES (?,?,?) ON CONFLICT DO NOTHING", tenant, reviewerId, titleUnit) ==
+                    1
+                ) {
+                    grantedUnits.add(titleUnit!!)
+                }
+                owner.update(
+                    "INSERT INTO finance.approval_scope VALUES (?,?,?,'review_reconciliation') ON CONFLICT DO NOTHING",
+                    tenant,
+                    reviewerId,
+                    titleUnit,
+                )
+            }
+            assertEquals(409, proposal(bank, allocation(first, 1), id = id).second.statusCode())
+            assertEquals(403, request("POST", "/reconciliation/decisions/$id/review", ar, """{"decision":"confirmed"}""").statusCode())
+            body(request("POST", "/reconciliation/decisions/$id/review", reviewer, """{"decision":"confirmed"}"""))
+            assertEquals(409, request("POST", "/reconciliation/decisions/$id/review", reviewer, """{"decision":"rejected"}""").statusCode())
+            val after = body(request("GET", "/reconciliation", ar))
+            assertEquals(0, after["banks"].first { it["id"].asText() == bank }["unallocated_minor"].asLong())
+            assertEquals("confirmed", after["decisions"].first { it["id"].asText() == id.toString() }["review"].asText())
+            assertEquals(400, proposal(bank, allocation(second, 1)).second.statusCode())
+            assertEquals(400, proposal(bankIds[6], allocation(titleIds[6], 6250001)).second.statusCode())
+            val partial = proposal(bankIds[6], allocation(titleIds[6], 6250000))
+            body(partial.second)
+            body(request("POST", "/reconciliation/decisions/${partial.first}/review", reviewer, """{"decision":"confirmed"}"""))
+            val balance = body(request("GET", "/reconciliation/titles/${titleIds[6]}/details", ar))
+            assertEquals(6250000, balance["normalized"]["outstanding_minor"].asLong())
+            val unknown = bankIds[14]
+            val equal =
+                workspace["titles"]
+                    .first {
+                        it["source_system"].asText() == "omie" &&
+                            it["original_amount_minor"].asLong() == 567000L
+                    }["id"]
+                    .asText()
+            assertFalse(workspace["candidates"].any { it["bankId"].asText() == unknown })
+            val ambiguous = proposal(unknown, allocation(equal, 567000))
+            body(ambiguous.second)
+            assertEquals(
+                400,
+                request(
+                    "POST",
+                    "/reconciliation/decisions/${ambiguous.first}/review",
+                    reviewer,
+                    """{"decision":"confirmed"}""",
+                ).statusCode(),
+            )
+            body(request("POST", "/reconciliation/decisions/${ambiguous.first}/review", reviewer, """{"decision":"rejected"}"""))
+            val pending = proposal(unknown, "", "pending")
+            body(pending.second)
+            assertEquals(
+                400,
+                request("POST", "/reconciliation/decisions/${pending.first}/review", reviewer, """{"decision":"confirmed"}""").statusCode(),
+            )
+            assertEquals(
+                409,
+                request(
+                    "POST",
+                    "/reconciliation/decisions/${ambiguous.first}/review",
+                    reviewer,
+                    """{"decision":"rejected"}""",
+                ).statusCode(),
+            )
+            val member = UUID.fromString(workspace["actorId"].asText())
+            owner.update("DELETE FROM finance.member_bank_account WHERE member_id=? AND account_id=?", member, account)
+            try {
+                assertEquals(404, request("GET", "/reconciliation/banks/$bank/details", ar).statusCode())
+                assertFalse(body(request("GET", "/reconciliation", ar))["decisions"].any { it["id"].asText() == id.toString() })
+            } finally {
+                owner.update("INSERT INTO finance.member_bank_account VALUES (?,?,?,?)", tenant, member, unit, account)
+            }
+        } finally {
+            owner.update("DELETE FROM finance.approval_scope WHERE member_id=? AND permission='review_reconciliation'", reviewerId)
+            for (granted in grantedUnits) {
+                owner.update(
+                    "DELETE FROM finance.member_unit WHERE member_id=? AND unit_id=?",
+                    reviewerId,
+                    granted,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `agents propose payable and receivable matches but only independent humans settle balances`() {
+        val agent = login("reconciliation", mcpClient)
+        val reviewer = login("controllership")
+        val reviewerId = UUID.fromString(body(request("GET", "/me", reviewer))["id"].asText())
+        owner.update("INSERT INTO finance.approval_scope VALUES (?,?,?,'review_reconciliation')", tenant, reviewerId, unit)
+        try {
+            for ((kind, direction) in listOf("payable" to "debit", "receivable" to "credit")) {
+                val supplier = "Agent Vendor ${UUID.randomUUID()}"
+
+                fun imported(
+                    dataset: String,
+                    csv: String,
+                    columns: String,
+                ): String {
+                    val importer = if (dataset == "bank") agent else login(if (dataset == "payable") "ap" else "ar")
+                    val id = body(upload(importer, "agent-${UUID.randomUUID()}.csv", csv, dataset), 201)["id"].asText()
+                    body(
+                        request(
+                            "POST",
+                            "/imports/$id/confirm",
+                            importer,
+                            """{"unitId":"$unit","accountId":"$account","dateFormat":"uuuu-MM-dd","decimal":".","columns":{$columns}}""",
+                        ),
+                    )
+                    body(request("POST", "/imports/$id/process", importer))
+                    return body(request("GET", "/imports/$id/results", importer))[0]["id"].asText()
+                }
+                val title =
+                    imported(
+                        kind,
+                        "Name,Due,Total\n$supplier,2026-07-20,12.50",
+                        """"party_name":"Name","due_on":"Due","amount":"Total"""",
+                    )
+                val bank =
+                    imported(
+                        "bank",
+                        "Name,Date,Total,Direction\n$supplier,2026-07-20,12.50,$direction",
+                        """"description":"Name","booking_date":"Date","amount":"Total","direction":"Direction"""",
+                    )
+                val search = "name=${java.net.URLEncoder.encode(
+                    supplier,
+                    Charsets.UTF_8,
+                )}&from=2026-07-20&to=2026-07-20&minAmountMinor=1250&maxAmountMinor=1250&unitId=$unit&limit=10"
+                assertEquals(
+                    listOf(
+                        title,
+                    ),
+                    body(request("GET", "/reconciliation/search/titles?$search&direction=$kind", agent)).toList().map {
+                        it["id"].asText()
+                    },
+                )
+                assertEquals(
+                    listOf(
+                        bank,
+                    ),
+                    body(request("GET", "/reconciliation/search/banks?$search&direction=$direction", agent)).toList().map {
+                        it["id"].asText()
+                    },
+                )
+                val candidates = body(request("GET", "/reconciliation/search/titles?$search&bankId=$bank", agent))
+                assertEquals(title, candidates[0]["id"].asText())
+                assertTrue(candidates[0]["identityEvidence"].size() > 0)
+                assertTrue(candidates[0]["amountMatches"].asBoolean())
+                assertEquals(0, candidates[0]["dateDifferenceDays"].asInt())
+                assertEquals(0, body(request("GET", "/reconciliation/search/titles?$search", login("fpa", mcpClient))).size())
+                assertEquals(
+                    0,
+                    body(
+                        request(
+                            "GET",
+                            "/reconciliation/search/titles?name=${java.net.URLEncoder.encode(
+                                supplier,
+                                Charsets.UTF_8,
+                            )}&minAmountMinor=1251",
+                            agent,
+                        ),
+                    ).size(),
+                )
+                for (query in listOf(
+                    "limit=101",
+                    "minAmountMinor=-1",
+                    "minAmountMinor=20&maxAmountMinor=10",
+                    "from=2027-01-01&to=2026-01-01",
+                    "direction=unknown",
+                )) {
+                    assertEquals(400, request("GET", "/reconciliation/search/titles?$query", agent).statusCode())
+                }
+                val id = UUID.randomUUID()
+                val payload = """{"id":"$id","action":"draft","allocations":[{"titleId":"$title","amountMinor":1250}]}"""
+                body(request("POST", "/reconciliation/$bank", agent, payload))
+                val pending = body(request("GET", "/reconciliation", reviewer))
+                val proposal = pending["decisions"].first { it["id"].asText() == id.toString() }
+                assertEquals("ai", proposal["origin"].asText())
+                assertTrue(proposal["review"].isNull)
+                assertEquals(
+                    listOf(
+                        id.toString(),
+                    ),
+                    body(request("GET", "/reconciliation/search/decisions?bankId=$bank&state=pending", agent)).toList().map {
+                        it["id"].asText()
+                    },
+                )
+                assertTrue(pending["titles"].any { it["id"].asText() == title })
+                assertTrue(pending["candidates"].any { it["bankId"].asText() == bank && it["titleId"].asText() == title })
+                assertEquals(
+                    1250,
+                    body(request("GET", "/reconciliation/banks/$bank/details", agent))["normalized"]["unallocated_minor"].asInt(),
+                )
+                assertEquals(
+                    403,
+                    request(
+                        "POST",
+                        "/reconciliation/decisions/$id/review",
+                        login("controllership", mcpClient),
+                        """{"decision":"confirmed"}""",
+                    ).statusCode(),
+                )
+                assertEquals(
+                    403,
+                    request(
+                        "POST",
+                        "/reconciliation/decisions/$id/review",
+                        login("reconciliation"),
+                        """{"decision":"confirmed"}""",
+                    ).statusCode(),
+                )
+                body(request("POST", "/reconciliation/decisions/$id/review", reviewer, """{"decision":"confirmed"}"""))
+                assertEquals(
+                    0,
+                    body(request("GET", "/reconciliation/banks/$bank/details", agent))["normalized"]["unallocated_minor"].asInt(),
+                )
+                assertEquals(
+                    0,
+                    body(request("GET", "/reconciliation/titles/$title/details", agent))["normalized"]["outstanding_minor"].asInt(),
+                )
+            }
+        } finally {
+            owner.update("DELETE FROM finance.approval_scope WHERE member_id=? AND permission='review_reconciliation'", reviewerId)
+        }
     }
 
     companion object {

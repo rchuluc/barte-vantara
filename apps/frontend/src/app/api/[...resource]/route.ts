@@ -4,6 +4,7 @@ import { tenantByHost } from "@/lib/tenants";
 import { backend } from "@/services/backend";
 import { importProxy } from "@/services/import-proxy";
 import { importAssistant } from "@/services/import-assistant";
+import { reconciliationProxy } from "@/services/reconciliation-proxy";
 import {
   ApiError,
   statusMessage,
@@ -216,6 +217,8 @@ async function handle(request: NextRequest, context: Context) {
     }
     if (resource[0] === "imports" || path === "business-units")
       return await importProxy(request, resource, body, me, options);
+    if (resource[0] === "reconciliation")
+      return await reconciliationProxy(request, resource, body, options);
     if (!me.permissions.includes("configure"))
       throw new ApiError(403, statusMessage(403));
 
