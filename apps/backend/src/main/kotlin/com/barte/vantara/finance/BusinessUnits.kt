@@ -11,6 +11,8 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
+import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
@@ -22,6 +24,11 @@ import java.util.UUID
 
 data class RegisterUnitRequest(
     @field:NotBlank @field:Size(max = 200) val name: String,
+)
+
+data class UpdateUnitRequest(
+    @field:NotBlank @field:Size(max = 200) val name: String,
+    val active: Boolean,
 )
 
 @RestController
@@ -36,7 +43,24 @@ class BusinessUnits(
         @AuthenticationPrincipal jwt: Jwt,
         @RequestHeader("X-Tenant-Id", required = false) tenant: UUID?,
     ): List<Map<String, Any?>> =
-        access.transaction(jwt, tenant) { _, _ -> jdbc.queryForList("SELECT id, name FROM finance.business_unit ORDER BY name") }
+        access.transaction(jwt, tenant) { _, _ -> jdbc.queryForList("SELECT id, name, active FROM finance.business_unit ORDER BY name") }
+
+    @PatchMapping("/{id}")
+    fun update(
+        @AuthenticationPrincipal jwt: Jwt,
+        @RequestHeader("X-Tenant-Id", required = false) tenant: UUID?,
+        @PathVariable id: UUID,
+        @Valid @RequestBody request: UpdateUnitRequest,
+    ): Map<String, Any?> =
+        access.transaction(jwt, tenant, true) { _, _ ->
+            jdbc
+                .queryForList(
+                    "UPDATE finance.business_unit SET name=?, active=? WHERE id=? RETURNING id, name, active",
+                    request.name.trim(),
+                    request.active,
+                    id,
+                ).singleOrNull() ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Business unit not found")
+        }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -48,7 +72,7 @@ class BusinessUnits(
         try {
             access.transaction(jwt, tenant, true) { context, _ ->
                 val id = jdbc.queryForObject("SELECT finance.register_unit(?, ?)", UUID::class.java, context.tenantId, request.name)!!
-                mapOf("id" to id, "name" to request.name.trim())
+                mapOf("id" to id, "name" to request.name.trim(), "active" to true)
             }
         } catch (_: DuplicateKeyException) {
             throw ResponseStatusException(HttpStatus.CONFLICT, "Unit name already registered")

@@ -670,7 +670,9 @@ export function ReconciliationWorkbench({
                           title.outstanding_minor === 0 ||
                           title.status !== "open" ||
                           title.observation_state !== "expected" ||
-                          active.currency !== title.currency;
+                          active.currency !== title.currency ||
+                          (active.statement_unit_ids != null &&
+                            !active.statement_unit_ids.includes(title.unit_id));
                         return (
                           <TableRow
                             key={title.id}

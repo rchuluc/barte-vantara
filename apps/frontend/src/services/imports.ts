@@ -6,7 +6,6 @@ import {
   importSchema,
   importSummarySchema,
   importRowSchema,
-  unitsSchema,
   type ImportMapping,
   type Dataset,
 } from "@/lib/import-contracts";
@@ -28,7 +27,6 @@ export const imports = {
       `imports/${id}/rows?after=${after}&limit=20`,
       z.array(importRowSchema),
     ),
-  units: () => request("business-units", unitsSchema),
   upload: (file: File, kind: Dataset, key: string) =>
     request(
       `imports?${new URLSearchParams({ filename: file.name, kind: datasetSchema.parse(kind) })}`,

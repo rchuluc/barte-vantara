@@ -10,6 +10,7 @@ import java.util.UUID
 data class ImportMapping(
     val columns: Map<String, String> = emptyMap(),
     val unitId: UUID? = null,
+    val unitIds: List<UUID> = emptyList(),
     val units: Map<String, UUID> = emptyMap(),
     val accountId: UUID? = null,
     val dateFormat: String? = null,

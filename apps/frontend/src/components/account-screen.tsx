@@ -38,7 +38,7 @@ export function AccountScreen({ profile = false }: { profile?: boolean }) {
   const user = me.data;
 
   return (
-    <section className="mx-auto flex min-h-[70dvh] max-w-2xl flex-col justify-center gap-8">
+    <section className="flex flex-col gap-8">
       <header>
         <p className="mb-2 text-sm text-muted-foreground">
           {tenant.name} / {profile ? "My profile" : "Overview"}

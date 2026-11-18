@@ -160,6 +160,18 @@ class ImportController(
                 "Detected format does not match dataset kind",
             )
             val columns = mapping.columns.ifEmpty { ImportNormalization.profiles[platform].orEmpty() }
+            requireInput(
+                mapping.unitIds.isEmpty() ||
+                    (
+                        kind == "bank" &&
+                            mapping.unitId == null &&
+                            !columns.containsKey("unit") &&
+                            mapping.units.isEmpty() &&
+                            mapping.unitIds.size <= 100 &&
+                            mapping.unitIds.distinct().size == mapping.unitIds.size
+                    ),
+                "Statement units must be distinct and cannot be combined with row-level destinations",
+            )
             val headers = json.readTree(job["headers"].toString()).toList().map { it.asText() }
             val required =
                 if (kind ==
@@ -186,13 +198,14 @@ class ImportController(
             val effective =
                 linkedMapOf<String, Any?>(
                     "columns" to columns,
-                    "unitId" to mapping.unitId,
+                    "unitId" to (mapping.unitIds.firstOrNull() ?: mapping.unitId),
                     "units" to mapping.units,
                     "accountId" to mapping.accountId,
                     "dateFormat" to dateFormat,
                     "decimal" to decimal,
                     "currency" to mapping.currency,
                 )
+            if (mapping.unitIds.isNotEmpty()) effective["unitIds"] = mapping.unitIds
             val resolvedUnits = mapping.units.toMutableMap()
             if (platform == "protheus" && columns.containsKey("unit")) {
                 if (job["state"] == "mapping") {
@@ -232,14 +245,25 @@ class ImportController(
                 }
                 throw ResponseStatusException(HttpStatus.CONFLICT, "Import mapping is already locked or unavailable")
             }
-            val unitIds = if (columns.containsKey("unit")) resolvedUnits.values.toSet() else setOfNotNull(mapping.unitId)
+            val unitIds =
+                if (columns.containsKey("unit")) {
+                    resolvedUnits.values.toSet()
+                } else {
+                    mapping.unitIds.toSet().ifEmpty {
+                        setOfNotNull(mapping.unitId)
+                    }
+                }
             requireInput(unitIds.isNotEmpty(), "Select destination business units")
             for (unit in unitIds) {
                 authorize(context.tenantId, unit, kind)
+                requireInput(
+                    jdbc.queryForObject("SELECT count(*) FROM finance.business_unit WHERE id=? AND active", Int::class.java, unit) == 1,
+                    "Business unit is disabled or unavailable",
+                )
                 if (kind == "bank") {
                     requireInput(mapping.accountId != null, "Select bank account")
                     if (jdbc.queryForObject(
-                            "SELECT count(*) FROM finance.bank_account WHERE id=? AND unit_id=? AND currency=?",
+                            "SELECT count(*) FROM finance.bank_account a JOIN finance.bank_account_unit u ON (u.tenant_id, u.account_id)=(a.tenant_id, a.id) WHERE a.id=? AND u.unit_id=? AND a.currency=? AND a.active AND u.active",
                             Int::class.java,
                             mapping.accountId,
                             unit,
@@ -310,8 +334,8 @@ class ImportController(
                 val category = if (kind == "bank" && values["direction"] == "credit") "incoming_bank" else kind
                 val account = mapping["accountId"].takeUnless { it.isNull }?.asText()?.let(UUID::fromString)
                 jdbc.update(
-                    """INSERT INTO finance.source_record (tenant_id,unit_id,id,batch_id,dataset_kind,category,locator,raw_text,account_id)
-                    SELECT ?,?,?,id,?,?,?,?,? FROM finance.import_batch WHERE tenant_id=? AND unit_id=? AND object_ref=? AND source_version=?""",
+                    """INSERT INTO finance.source_record (tenant_id,unit_id,id,batch_id,dataset_kind,category,locator,raw_text,account_id,statement_units)
+                    SELECT ?,?,?,id,?,?,?,?,?,?::uuid[] FROM finance.import_batch WHERE tenant_id=? AND unit_id=? AND object_ref=? AND source_version=?""",
                     context.tenantId,
                     values["unit_id"],
                     source,
@@ -320,6 +344,7 @@ class ImportController(
                     "record:${row["row_number"]}",
                     row["cells"].toString(),
                     account,
+                    if (mapping.has("unitIds")) mapping["unitIds"].toList().joinToString(",", "{", "}") { it.asText() } else null,
                     context.tenantId,
                     values["unit_id"],
                     job["object_key"],

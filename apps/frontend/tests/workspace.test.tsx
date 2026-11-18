@@ -12,6 +12,7 @@ import { LoginScreen } from "@/components/login-screen";
 import { AccountScreen } from "@/components/account-screen";
 import { UsersScreen } from "@/components/users-screen";
 import { UserEditor } from "@/components/user-editor";
+import NewUserPage from "@/app/[tenant]/(workspace)/users/new/page";
 import { member, admin, other, newUser } from "./fixtures";
 import type { Me, User } from "@/lib/contracts";
 import LoginPage from "@/app/[tenant]/login/page";
@@ -22,6 +23,7 @@ import WorkspaceLayout from "@/app/[tenant]/(workspace)/layout";
 
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
+  push: vi.fn(),
   pathname: "/dashboard",
 }));
 vi.mock("next/navigation", () => ({
@@ -49,6 +51,7 @@ beforeEach(() => {
   identity = { ...member };
   people = [other];
   navigation.replace.mockReset();
+  navigation.push.mockReset();
   navigation.pathname = "/dashboard";
   fetchMock.mockReset().mockImplementation(async (url, options) => {
     const path = String(url);
@@ -60,6 +63,20 @@ beforeEach(() => {
       return Response.json([
         { role: "ap", permissions: ["pay"] },
         { role: "admin", permissions: ["configure"] },
+      ]);
+    if (path.endsWith("/business-units"))
+      return Response.json([{ id: other.id, name: "HQ", active: true }]);
+    if (path.endsWith("/bank-accounts"))
+      return Response.json([
+        {
+          id: other.id,
+          unit_ids: [other.id],
+          configurable: true,
+          bank_code: "341",
+          account_ref: "123",
+          currency: "BRL",
+          active: true,
+        },
       ]);
     if (options?.method === "POST" || options?.method === "PATCH")
       return Response.json(other);
@@ -322,8 +339,13 @@ it("retries authorization loading failures before showing admin data", async () 
 
 it("creates a user with role and scope validation", async () => {
   identity = admin;
-  mount(<UsersScreen />);
-  fireEvent.click(await screen.findByRole("button", { name: "Add user" }));
+  const list = mount(<UsersScreen />);
+  expect(await screen.findByRole("link", { name: "Add user" })).toHaveAttribute(
+    "href",
+    "/users/new",
+  );
+  list.unmount();
+  mount(<NewUserPage />);
   await screen.findByLabelText("Display name");
   fill("Display name", newUser.displayName);
   fill("Email address", newUser.email);
@@ -334,12 +356,22 @@ it("creates a user with role and scope validation", async () => {
   );
   expect(screen.getByLabelText("ap")).toHaveFocus();
   fireEvent.click(screen.getByLabelText("ap"));
-  fill("Business unit IDs", other.id);
-  fill("Bank account IDs", other.id);
-  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
   await waitFor(() =>
-    expect(screen.queryByLabelText("Display name")).not.toBeInTheDocument(),
+    expect(screen.getByLabelText("Business units")).toBeEnabled(),
   );
+  fireEvent.click(screen.getByLabelText("Business units"));
+  fireEvent.click(await screen.findByRole("option", { name: "HQ" }));
+  fireEvent.keyDown(screen.getByPlaceholderText("Search…"), { key: "Escape" });
+  await waitFor(() =>
+    expect(screen.getByLabelText("Business units")).toHaveFocus(),
+  );
+  fireEvent.click(screen.getByLabelText("Bank accounts"));
+  fireEvent.click(
+    await screen.findByRole("option", { name: "341 · 123 · BRL" }),
+  );
+  fireEvent.keyDown(screen.getByPlaceholderText("Search…"), { key: "Escape" });
+  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
+  await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/users"));
   expect(fetchMock).toHaveBeenCalledWith(
     "/api/users",
     expect.objectContaining({

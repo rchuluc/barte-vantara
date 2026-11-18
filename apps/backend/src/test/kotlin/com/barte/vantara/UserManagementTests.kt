@@ -379,6 +379,25 @@ class UserManagementTests {
                 """{"unitId":"$unit","accountId":"${UUID.randomUUID()}",$columns}""",
             ).statusCode(),
         )
+        owner.update("UPDATE finance.business_unit SET active=false WHERE id=?", unit)
+        try {
+            assertEquals(
+                400,
+                request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit","accountId":"$account",$columns}""").statusCode(),
+            )
+        } finally {
+            owner.update("UPDATE finance.business_unit SET active=true WHERE id=?", unit)
+        }
+        owner.update("UPDATE finance.bank_account SET active=false WHERE id=?", account)
+        try {
+            assertEquals(
+                403,
+                request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit","accountId":"$account",$columns}""").statusCode(),
+            )
+        } finally {
+            owner.update("UPDATE finance.bank_account SET active=true WHERE id=?", account)
+        }
+        assertEquals("mapping", body(request("GET", "/imports/$id", token))["state"].asText())
         body(request("POST", "/imports/$id/confirm", token, """{"unitId":"$unit","accountId":"$account",$columns}"""))
         assertEquals(2, body(request("POST", "/imports/$id/process", token))["rejected"].asInt())
         assertEquals(2, body(request("GET", "/imports/$id/results", token)).size())
@@ -1006,6 +1025,284 @@ class UserManagementTests {
         assertEquals(409, request("POST", "/business-units", token, """{"name":"Other"}""").statusCode())
         assertEquals(403, request("POST", "/business-units", login("fpa"), """{"name":"Forbidden"}""").statusCode())
         assertEquals(400, request("POST", "/business-units", token, """{"name":" "}""").statusCode())
+    }
+
+    @Test
+    fun `destinations are managed within scope and disabled without deleting history`() {
+        val token = login()
+        val name = "Managed-${UUID.randomUUID()}"
+        val created = body(request("POST", "/business-units", token, """{"name":"$name"}"""), 201)
+        val unitId = created["id"].asText()
+        val accountBody = """{"unitIds":["$unitId"],"bankCode":"341","accountRef":"${UUID.randomUUID()}","currency":"BRL"}"""
+        val account = body(request("POST", "/bank-accounts", token, accountBody), 201)
+        val accountId = account["id"].asText()
+        assertTrue(account["active"].asBoolean())
+        assertTrue(body(request("GET", "/bank-accounts", token)).any { it["id"] == account["id"] })
+        assertFalse(body(request("GET", "/bank-accounts", login("fpa"))).any { it["id"] == account["id"] })
+        assertEquals(409, request("POST", "/bank-accounts", token, accountBody).statusCode())
+        assertEquals(403, request("POST", "/bank-accounts", login("fpa"), accountBody).statusCode())
+        assertEquals(403, request("POST", "/bank-accounts", token, accountBody.replace(unitId, UUID.randomUUID().toString())).statusCode())
+        assertEquals(400, request("POST", "/bank-accounts", token, accountBody.replace("BRL", "XXX")).statusCode())
+
+        val patch = """{"bankCode":"001","accountRef":"updated-$accountId","active":false}"""
+        assertEquals(403, request("PATCH", "/bank-accounts/$accountId", login("fpa"), patch).statusCode())
+        assertEquals(404, request("PATCH", "/bank-accounts/${UUID.randomUUID()}", token, patch).statusCode())
+        val updated = body(request("PATCH", "/bank-accounts/$accountId", token, patch))
+        assertFalse(updated["active"].asBoolean())
+        assertEquals("001", updated["bank_code"].asText())
+        val unitPatch = """{"name":"$name updated","active":false}"""
+        assertEquals(403, request("PATCH", "/business-units/$unitId", login("fpa"), unitPatch).statusCode())
+        assertEquals(404, request("PATCH", "/business-units/${UUID.randomUUID()}", token, unitPatch).statusCode())
+        assertFalse(body(request("PATCH", "/business-units/$unitId", token, unitPatch))["active"].asBoolean())
+        assertEquals(403, request("POST", "/bank-accounts", token, accountBody).statusCode())
+        assertEquals(
+            1,
+            owner.queryForObject(
+                "SELECT count(*) FROM finance.bank_account WHERE id=? AND NOT active",
+                Int::class.java,
+                UUID.fromString(accountId),
+            ),
+        )
+        assertEquals(
+            1,
+            owner.queryForObject(
+                "SELECT count(*) FROM finance.business_unit WHERE id=? AND NOT active",
+                Int::class.java,
+                UUID.fromString(unitId),
+            ),
+        )
+        for (table in listOf("business_unit", "bank_account")) {
+            assertThrows(org.springframework.dao.DataAccessException::class.java) {
+                access.transaction(decoder.decode(token), tenant) { _, _ -> runtime.update("DELETE FROM finance.$table") }
+            }
+        }
+    }
+
+    @Test
+    fun `shared accounts retain scoped visibility delegation and historical imports`() {
+        val admin = login()
+        val first = body(request("POST", "/business-units", admin, """{"name":"Shared-first-${UUID.randomUUID()}"}"""), 201)["id"].asText()
+        val second =
+            body(
+                request("POST", "/business-units", admin, """{"name":"Shared-second-${UUID.randomUUID()}"}"""),
+                201,
+            )["id"].asText()
+        val reference = UUID.randomUUID().toString()
+        val created =
+            body(
+                request(
+                    "POST",
+                    "/bank-accounts",
+                    admin,
+                    """{"unitIds":["$first","$second"],"bankCode":"341","accountRef":"$reference","currency":"BRL"}""",
+                ),
+                201,
+            )
+        val accountId = created["id"].asText()
+        assertEquals(setOf(first, second), created["unit_ids"].asSequence().map { it.asText() }.toSet())
+        assertTrue(created["configurable"].asBoolean())
+        assertEquals(
+            400,
+            request(
+                "POST",
+                "/bank-accounts",
+                admin,
+                """{"unitIds":[],"bankCode":"341","accountRef":"empty","currency":"BRL"}""",
+            ).statusCode(),
+        )
+        val email = "${UUID.randomUUID()}@example.com"
+        val member =
+            body(
+                request(
+                    "POST",
+                    "/users",
+                    admin,
+                    """{"email":"$email","password":"@Test123","roles":["admin","reconciliation"],"unitIds":["$first","$second"],"bankAccountIds":["$accountId"]}""",
+                ),
+                201,
+            )
+        assertEquals(1, member["bankAccountIds"].size())
+        val memberId = member["id"].asText()
+        body(request("PATCH", "/users/$memberId", admin, """{"unitIds":["$second"],"bankAccountIds":["$accountId"]}"""))
+        val token =
+            cognito
+                .initiateAuth {
+                    it.clientId(config.getProperty("cognito.client-id")).authFlow("USER_PASSWORD_AUTH").authParameters(
+                        mapOf(
+                            "USERNAME" to email,
+                            "PASSWORD" to "@Test123",
+                        ),
+                    )
+                }.authenticationResult()
+                .accessToken()
+        val visible = body(request("GET", "/bank-accounts", token)).single()
+        assertEquals(accountId, visible["id"].asText())
+        assertEquals(listOf(second), visible["unit_ids"].asSequence().map { it.asText() }.toList())
+        assertFalse(visible["configurable"].asBoolean())
+        val patch = """{"bankCode":"341","accountRef":"$reference","active":true,"unitIds":["$first"]}"""
+        assertEquals(404, request("PATCH", "/bank-accounts/$accountId", token, patch).statusCode())
+        assertEquals(403, request("PATCH", "/bank-accounts/$accountId", admin, patch.replace(first, otherUnit.toString())).statusCode())
+        assertEquals(2, body(request("GET", "/bank-accounts", admin)).first { it["id"].asText() == accountId }["unit_ids"].size())
+        val csv = "Date,Text,Amount,Direction,Ref\n2026-07-20,Shared account,2,credit,shared-ref\n"
+        val columns =
+            """"columns":{"booking_date":"Date","description":"Text","amount":"Amount","direction":"Direction","external_id":"Ref"}"""
+        val uploadId = body(upload(token, "shared.csv", csv, "bank"), 201)["id"].asText()
+        assertEquals(
+            403,
+            request("POST", "/imports/$uploadId/confirm", token, """{"unitId":"$first","accountId":"$accountId",$columns}""").statusCode(),
+        )
+        body(request("POST", "/imports/$uploadId/confirm", token, """{"unitId":"$second","accountId":"$accountId",$columns}"""))
+        body(request("POST", "/imports/$uploadId/process", token))
+        assertEquals(1, body(request("GET", "/imports/$uploadId/results", token)).size())
+        val sharedMapping = """{"unitIds":["$first","$second"],"accountId":"$accountId",$columns}"""
+        val denied = body(upload(token, "denied-scope.csv", csv, "bank"), 201)["id"].asText()
+        assertEquals(403, request("POST", "/imports/$denied/confirm", token, sharedMapping).statusCode())
+        body(
+            request(
+                "PATCH",
+                "/users/$memberId",
+                admin,
+                """{"roles":["admin","ar","reconciliation"],"unitIds":["$first","$second"],"bankAccountIds":["$accountId"]}""",
+            ),
+        )
+        val shared = body(upload(token, "all-units.csv", csv, "bank"), 201)["id"].asText()
+        for (invalid in listOf(
+            sharedMapping.replace("$first\",\"$second", "$first\",\"$first"),
+            sharedMapping.replace("\"unitIds\"", "\"unitId\":\"$first\",\"unitIds\""),
+            sharedMapping.replace("\"unitIds\"", "\"units\":{\"HQ\":\"$first\"},\"unitIds\""),
+            sharedMapping.replace("\"booking_date\":", "\"unit\":\"Text\",\"booking_date\":"),
+            sharedMapping.replace("\"$first\",\"$second\"", (1..101).joinToString(",") { "\"${UUID.randomUUID()}\"" }),
+            sharedMapping.replace("\"$first\",\"$second\"", ""),
+        )) {
+            assertEquals(400, request("POST", "/imports/$shared/confirm", token, invalid).statusCode())
+        }
+        body(request("POST", "/imports/$shared/confirm", token, sharedMapping))
+        body(request("POST", "/imports/$shared/confirm", token, sharedMapping))
+        body(request("POST", "/imports/$shared/process", token))
+        body(request("POST", "/imports/$shared/process", token))
+        val sharedRows = body(request("GET", "/imports/$shared/results", token))
+        assertEquals(1, sharedRows.size())
+        val sharedBank = sharedRows[0]["id"].asText()
+        body(request("PATCH", "/users/$memberId", admin, """{"unitIds":["$second"],"bankAccountIds":["$accountId"]}"""))
+        val originalSource = UUID.fromString(body(request("GET", "/imports/$uploadId/results", token))[0]["source_id"].asText())
+        assertThrows(org.springframework.dao.DataAccessException::class.java) {
+            access.transaction(decoder.decode(token), tenant) { _, _ ->
+                runtime.update(
+                    """INSERT INTO finance.source_record (tenant_id,unit_id,batch_id,dataset_kind,category,locator,raw_text,account_id,statement_units)
+                    SELECT tenant_id,unit_id,batch_id,dataset_kind,category,'forged',raw_text,account_id,?::uuid[]
+                    FROM finance.source_record WHERE id=?""",
+                    "{$first,$second}",
+                    originalSource,
+                )
+            }
+        }
+        val secondOnly = body(request("GET", "/reconciliation", token))["banks"].single { it["id"].asText() == sharedBank }
+        assertEquals(200, secondOnly["unallocated_minor"].asInt())
+        assertTrue(secondOnly["can_propose"].asBoolean())
+        assertEquals(listOf(second), secondOnly["statement_unit_ids"].toList().map { it.asText() })
+        body(request("GET", "/reconciliation/banks/$sharedBank/details", token))
+        val titleJob =
+            body(
+                upload(token, "shared-title.csv", "Name,Amount,Due,Ref\nShared account,2,2026-07-20,shared-ref\n", "receivable"),
+                201,
+            )["id"].asText()
+        assertEquals(400, request("POST", "/imports/$titleJob/confirm", token, sharedMapping).statusCode())
+        body(
+            request(
+                "POST",
+                "/imports/$titleJob/confirm",
+                token,
+                """{"unitId":"$second","columns":{"party_name":"Name","amount":"Amount","due_on":"Due","external_id":"Ref"}}""",
+            ),
+        )
+        body(request("POST", "/imports/$titleJob/process", token))
+        val title = body(request("GET", "/imports/$titleJob/results", token))[0]["id"].asText()
+        body(request("PATCH", "/users/$memberId", admin, """{"unitIds":["$first","$second"],"bankAccountIds":["$accountId"]}"""))
+        val firstOnlyJob = body(upload(token, "first-only.csv", csv, "bank"), 201)["id"].asText()
+        body(request("POST", "/imports/$firstOnlyJob/confirm", token, """{"unitIds":["$first"],"accountId":"$accountId",$columns}"""))
+        body(request("POST", "/imports/$firstOnlyJob/process", token))
+        val firstOnlyBank = body(request("GET", "/imports/$firstOnlyJob/results", token))[0]["id"].asText()
+        assertFalse(body(request("GET", "/reconciliation/search/titles?bankId=$firstOnlyBank", token)).any { it["id"].asText() == title })
+        assertEquals(
+            400,
+            request(
+                "POST",
+                "/reconciliation/$firstOnlyBank",
+                token,
+                """{"id":"${UUID.randomUUID()}","action":"draft","allocations":[{"titleId":"$title","amountMinor":100}]}""",
+            ).statusCode(),
+        )
+        body(request("PATCH", "/users/$memberId", admin, """{"unitIds":["$second"],"bankAccountIds":["$accountId"]}"""))
+        assertFalse(body(request("GET", "/reconciliation", token))["banks"].any { it["id"].asText() == firstOnlyBank })
+        val proposal = UUID.randomUUID()
+        body(
+            request(
+                "POST",
+                "/reconciliation/$sharedBank",
+                token,
+                """{"id":"$proposal","action":"draft","allocations":[{"titleId":"$title","amountMinor":200}]}""",
+            ),
+        )
+        assertEquals(
+            second,
+            owner.queryForObject("SELECT unit_id::text FROM finance.reconciliation_decision WHERE id=?", String::class.java, proposal),
+        )
+        val reviewer = login("controllership")
+        val reviewerId = UUID.fromString(body(request("GET", "/me", reviewer))["id"].asText())
+        owner.update("INSERT INTO finance.member_unit VALUES (?,?,?)", tenant, reviewerId, UUID.fromString(second))
+        owner.update(
+            "INSERT INTO finance.member_bank_account VALUES (?,?,?,?)",
+            tenant,
+            reviewerId,
+            UUID.fromString(second),
+            UUID.fromString(accountId),
+        )
+        owner.update(
+            "INSERT INTO finance.approval_scope VALUES (?,?,?,'review_reconciliation')",
+            tenant,
+            reviewerId,
+            UUID.fromString(second),
+        )
+        try {
+            assertEquals(
+                403,
+                request("POST", "/reconciliation/decisions/$proposal/review", token, """{"decision":"confirmed"}""").statusCode(),
+            )
+            body(request("POST", "/reconciliation/decisions/$proposal/review", reviewer, """{"decision":"confirmed"}"""))
+            val settled = body(request("GET", "/reconciliation", token))
+            assertEquals(0, settled["banks"].single { it["id"].asText() == sharedBank }["unallocated_minor"].asInt())
+            assertEquals(0, settled["titles"].single { it["id"].asText() == title }["outstanding_minor"].asInt())
+            body(request("PATCH", "/users/$memberId", admin, """{"unitIds":["$first"],"bankAccountIds":["$accountId"]}"""))
+            val firstView = body(request("GET", "/reconciliation", token))
+            assertEquals(0, firstView["banks"].single { it["id"].asText() == sharedBank }["unallocated_minor"].asInt())
+            assertFalse(firstView["titles"].any { it["id"].asText() == title })
+            body(request("PATCH", "/users/$memberId", admin, """{"unitIds":["$second"],"bankAccountIds":["$accountId"]}"""))
+            assertEquals(
+                400,
+                request(
+                    "POST",
+                    "/reconciliation/$sharedBank",
+                    token,
+                    """{"id":"${UUID.randomUUID()}","action":"draft","allocations":[{"titleId":"$title","amountMinor":1}]}""",
+                ).statusCode(),
+            )
+            assertTrue(body(request("GET", "/reconciliation/search/banks?unitId=$second", token)).any { it["id"].asText() == sharedBank })
+        } finally {
+            owner.update("DELETE FROM finance.approval_scope WHERE member_id=? AND unit_id=?", reviewerId, UUID.fromString(second))
+            owner.update("DELETE FROM finance.member_bank_account WHERE member_id=? AND unit_id=?", reviewerId, UUID.fromString(second))
+            owner.update("DELETE FROM finance.member_unit WHERE member_id=? AND unit_id=?", reviewerId, UUID.fromString(second))
+        }
+        // Account visibility never grants access to an unselected statement unit.
+        body(request("PATCH", "/users/$memberId", admin, """{"unitIds":["$first"],"bankAccountIds":[]}"""))
+        assertFalse(body(request("GET", "/reconciliation", token))["banks"].any { it["id"].asText() == sharedBank })
+        body(request("PATCH", "/users/$memberId", admin, """{"unitIds":["$second"],"bankAccountIds":["$accountId"]}"""))
+        body(request("PATCH", "/bank-accounts/$accountId", admin, patch))
+        assertEquals(1, body(request("GET", "/imports/$uploadId/results", token)).size())
+        val next = body(upload(token, "shared-next.csv", csv, "bank"), 201)["id"].asText()
+        assertEquals(
+            403,
+            request("POST", "/imports/$next/confirm", token, """{"unitId":"$second","accountId":"$accountId",$columns}""").statusCode(),
+        )
     }
 
     @Test

@@ -6,6 +6,7 @@ const nullableText = z.string().nullable();
 export const bankSchema = z.object({
   id: z.uuid(),
   unit_id: z.uuid(),
+  statement_unit_ids: z.array(z.uuid()).nullable().optional(),
   direction: z.enum(["credit", "debit"]),
   booking_date: z.string(),
   description: z.string(),

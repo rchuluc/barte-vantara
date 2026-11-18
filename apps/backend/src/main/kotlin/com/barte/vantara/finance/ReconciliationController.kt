@@ -115,7 +115,7 @@ class ReconciliationController(
             val candidateBank = if (bankId != null && kind == "titles") bank(bankId) else null
             val table =
                 when (kind) {
-                    "banks" -> "finance.bank_position p"
+                    "banks" -> "finance.bank_position p JOIN finance.source_record s ON (s.tenant_id,s.id)=(p.tenant_id,p.source_id)"
                     "titles" ->
                         """finance.title_position p
                         JOIN finance.source_record s ON (s.tenant_id,s.id)=(p.tenant_id,p.source_id)
@@ -153,8 +153,8 @@ class ReconciliationController(
                         """d.*,r.decision AS review,r.actor_id AS reviewer_id,
                         r.created_at AS reviewed_at,$status AS approval_status"""
                     else ->
-                        """p.*,finance.allowed(p.tenant_id,p.unit_id,'propose_match') AS can_propose,
-                        finance.can_approve(p.tenant_id,p.unit_id,'review_reconciliation') AS can_review"""
+                        """p.*,$statementUnits AS statement_unit_ids,finance.bank_action_unit(p.tenant_id,p.id,'propose_match') IS NOT NULL AS can_propose,
+                        finance.bank_action_unit(p.tenant_id,p.id,'review_reconciliation') IS NOT NULL AS can_review"""
                 }
             val filters = mutableListOf<String>()
             val args = mutableListOf<Any>()
@@ -173,10 +173,11 @@ class ReconciliationController(
             filter("$date<(?::date + interval '1 day')", to)
             filter("$amount>=?", minAmountMinor)
             filter("$amount<=?", maxAmountMinor)
-            filter("p.unit_id=?", unitId)
+            filter(if (kind == "titles") "p.unit_id=?" else "finance.bank_in_unit(p.tenant_id,p.id,?)", unitId)
             filter("p.direction=?", direction)
             filter("p.currency=?", currency)
             if (candidateBank != null) {
+                filter("finance.statement_accepts_title(p.tenant_id,?,p.id)", bankId)
                 filter("p.currency=?", candidateBank["currency"])
                 filter("p.direction=?", if (candidateBank["direction"] == "credit") "receivable" else "payable")
                 filters.add("p.status='open' AND p.observation_state='expected' AND p.outstanding_minor>0")
@@ -229,9 +230,10 @@ class ReconciliationController(
         access.transaction(jwt, tenant) { _, actor ->
             val banks =
                 rows(
-                    """SELECT b.*, finance.allowed(b.tenant_id,b.unit_id,'propose_match') AS can_propose,
-            finance.can_approve(b.tenant_id,b.unit_id,'review_reconciliation') AND finance.human_actor(b.tenant_id) AS can_review
+                    """SELECT b.*, $statementUnits AS statement_unit_ids,finance.bank_action_unit(b.tenant_id,b.id,'propose_match') IS NOT NULL AS can_propose,
+            finance.bank_action_unit(b.tenant_id,b.id,'review_reconciliation') IS NOT NULL AND finance.human_actor(b.tenant_id) AS can_review
             FROM finance.bank_position b JOIN finance.bank_account account ON (account.tenant_id,account.id)=(b.tenant_id,b.account_id)
+            JOIN finance.source_record s ON (s.tenant_id,s.id)=(b.tenant_id,b.source_id)
             ORDER BY b.booking_date,b.id""",
                 )
             val titles =
@@ -270,7 +272,7 @@ class ReconciliationController(
                                     (it["outstanding_minor"] as Number).toLong() > 0
                             }.mapNotNull { title ->
                                 val identity = MatchEvidence.identity(bank, title)
-                                if (identity.isEmpty()) {
+                                if (identity.isEmpty() || !acceptsTitle(bank, title["id"] as UUID)) {
                                     null
                                 } else {
                                     mapOf(
@@ -307,16 +309,13 @@ class ReconciliationController(
             lock(context.tenantId)
             val bank = bank(bankId)
             requireInput(input.action in setOf("draft", "pending", "rejected_suggestion"))
-            if (jdbc.queryForObject(
-                    "SELECT finance.allowed(?,?,'propose_match')",
-                    Boolean::class.java,
+            val decisionUnit =
+                jdbc.queryForObject(
+                    "SELECT finance.bank_action_unit(?,?,'propose_match')",
+                    UUID::class.java,
                     context.tenantId,
-                    bank["unit_id"],
-                ) !=
-                true
-            ) {
-                forbidden()
-            }
+                    bankId,
+                ) ?: forbidden()
             val existing = jdbc.queryForList("SELECT id FROM finance.reconciliation_decision WHERE id=?", input.id)
             if (existing.isNotEmpty()) throw ResponseStatusException(HttpStatus.CONFLICT, "Decision already saved; refresh")
             requireInput(
@@ -335,7 +334,7 @@ class ReconciliationController(
             (tenant_id,unit_id,id,origin,rationale,bank_entry_id,disposition,rejected_title_id)
             VALUES (?,?,?,?,?,?,?,?)""",
                 context.tenantId,
-                bank["unit_id"],
+                decisionUnit,
                 input.id,
                 context.actorKind,
                 when (input.action) {
@@ -359,7 +358,7 @@ class ReconciliationController(
                     """INSERT INTO finance.allocation
             (tenant_id,unit_id,decision_id,title_id,bank_entry_id,amount_minor,currency) VALUES (?,?,?,?,?,?,?)""",
                     context.tenantId,
-                    bank["unit_id"],
+                    decisionUnit,
                     input.id,
                     allocation.titleId,
                     bankId,
@@ -427,7 +426,7 @@ class ReconciliationController(
                 """INSERT INTO finance.reconciliation_review (tenant_id,unit_id,decision_id,decision,reason)
             VALUES (?,?,?,?,?)""",
                 context.tenantId,
-                bank["unit_id"],
+                decision["unit_id"],
                 id,
                 input.decision,
                 if (input.decision ==
@@ -481,6 +480,7 @@ class ReconciliationController(
         var total = 0L
         for (allocation in allocations) {
             val title = title(allocation.titleId)
+            requireInput(acceptsTitle(bank, allocation.titleId))
             requireInput(allocation.amountMinor > 0 && allocation.amountMinor <= (title["outstanding_minor"] as Number).toLong())
             requireInput(
                 (title["direction"] == "receivable") == (bank["direction"] == "credit") &&
@@ -502,11 +502,28 @@ class ReconciliationController(
     private fun bank(id: UUID): Map<String, Any?> =
         jdbc.queryForList("SELECT * FROM finance.bank_position WHERE id=?", id).singleOrNull() ?: missing()
 
+    private fun acceptsTitle(
+        bank: Map<String, Any?>,
+        titleId: UUID,
+    ): Boolean =
+        jdbc.queryForObject("SELECT finance.statement_accepts_title(?,?,?)", Boolean::class.java, bank["tenant_id"], bank["id"], titleId) ==
+            true
+
     private fun title(id: UUID): Map<String, Any?> =
         jdbc.queryForList("SELECT * FROM finance.title_position WHERE id=?", id).singleOrNull() ?: missing()
 
+    private val statementUnits =
+        """CASE WHEN s.statement_units IS NULL THEN NULL ELSE ARRAY(
+        SELECT u FROM unnest(s.statement_units) u WHERE finance.account_allowed(s.tenant_id,u,s.account_id)) END"""
+
     private fun clean(row: Map<String, Any?>): Map<String, Any?> =
-        row.mapValues { (_, value) -> if (value is java.sql.Date) value.toLocalDate().toString() else value }
+        row.mapValues { (_, value) ->
+            when (value) {
+                is java.sql.Date -> value.toLocalDate().toString()
+                is java.sql.Array -> (value.array as Array<*>).toList()
+                else -> value
+            }
+        }
 
     private fun rows(
         sql: String,

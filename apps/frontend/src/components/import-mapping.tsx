@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useBusinessUnits, useImportAction } from "@/hooks/use-imports";
+import { useImportAction } from "@/hooks/use-imports";
+import {
+  BusinessUnitCombobox,
+  BankAccountCombobox,
+} from "@/components/destination-picker";
 import type { ImportJob, ImportMapping } from "@/lib/import-contracts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,12 +22,12 @@ import {
 import { RequestError } from "@/components/request-feedback";
 
 export function ImportMappingForm({ job }: { job: ImportJob }) {
-  const units = useBusinessUnits();
   const action = useImportAction(job.id);
   const [columns, setColumns] = useState<Record<string, string>>(
     job.suggestedColumns,
   );
   const [unitId, setUnitId] = useState("");
+  const [statementUnits, setStatementUnits] = useState<string[]>([]);
   const [accountId, setAccountId] = useState("");
   const [dateFormat, setDateFormat] = useState<ImportMapping["dateFormat"]>(
     ["protheus", "itau"].includes(job.platform ?? "")
@@ -41,6 +45,10 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
       : ["amount", "party_name", "due_on"];
   const multiUnit = !!columns.unit;
   const automaticUnits = multiUnit && job.platform === "protheus";
+  const sharedStatement = job.dataset_kind === "bank" && !multiUnit;
+  const destinationSelected = sharedStatement
+    ? statementUnits.length > 0
+    : !!unitId;
 
   return (
     <form
@@ -53,7 +61,11 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
             columns: Object.fromEntries(
               Object.entries(columns).filter(([, value]) => value),
             ),
-            ...(multiUnit ? { units: unitMap } : { unitId }),
+            ...(multiUnit
+              ? { units: unitMap }
+              : sharedStatement
+                ? { unitIds: statementUnits }
+                : { unitId }),
             ...(job.dataset_kind === "bank" ? { accountId } : {}),
             dateFormat,
             decimal,
@@ -96,36 +108,25 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
         ))}
       </FieldGroup>
       <h2 className="text-xl font-semibold">Destination & formatting</h2>
-      {units.error && (
-        <RequestError
-          error={units.error}
-          retry={() => {
-            void units.refetch();
-          }}
-        />
-      )}
       <FieldGroup className="grid gap-4 sm:grid-cols-2">
         {!multiUnit && (
           <Field>
             <FieldLabel htmlFor="destination">Business unit *</FieldLabel>
-            <NativeSelect
+            <BusinessUnitCombobox
               id="destination"
-              required
-              value={unitId}
-              disabled={action.isPending || units.isPending}
-              onChange={(event) => setUnitId(event.target.value)}
-            >
-              <NativeSelectOption value="">
-                {units.isPending ? "Loading units…" : "Select a business unit"}
-              </NativeSelectOption>
-              {units.data?.map((unit) => (
-                <NativeSelectOption key={unit.id} value={unit.id}>
-                  {unit.name}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
+              multiple={sharedStatement}
+              value={sharedStatement ? statementUnits : unitId ? [unitId] : []}
+              disabled={action.isPending}
+              onChange={(value) => {
+                setUnitId(value[0] ?? "");
+                setStatementUnits(value);
+                setAccountId("");
+              }}
+            />
             <FieldDescription>
-              Only units visible to your account are listed.
+              {sharedStatement
+                ? "Select one or more units. Each movement is imported once and shares a single balance."
+                : "Only units visible to your account are listed."}
             </FieldDescription>
           </Field>
         )}
@@ -166,39 +167,34 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
               <FieldLabel htmlFor={`unit-${index}`}>
                 Destination for {name} *
               </FieldLabel>
-              <NativeSelect
+              <BusinessUnitCombobox
                 id={`unit-${index}`}
-                required
-                value={unitMap[name]}
+                value={unitMap[name] ? [unitMap[name]] : []}
                 disabled={action.isPending}
-                onChange={(event) =>
-                  setUnitMap({ ...unitMap, [name]: event.target.value })
-                }
-              >
-                <NativeSelectOption value="">
-                  Select a business unit
-                </NativeSelectOption>
-                {units.data?.map((unit) => (
-                  <NativeSelectOption key={unit.id} value={unit.id}>
-                    {unit.name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
+                onChange={(value) => {
+                  setUnitMap({ ...unitMap, [name]: value[0] ?? "" });
+                  setAccountId("");
+                }}
+              />
             </Field>
           ))}
         {job.dataset_kind === "bank" && (
           <Field>
-            <FieldLabel htmlFor="bank-account">Bank account ID *</FieldLabel>
-            <Input
+            <FieldLabel htmlFor="bank-account">Bank account *</FieldLabel>
+            <BankAccountCombobox
               id="bank-account"
-              required
-              value={accountId}
-              pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
-              disabled={action.isPending}
-              onChange={(event) => setAccountId(event.target.value)}
+              requireAllUnits
+              value={accountId ? [accountId] : []}
+              onChange={(value) => setAccountId(value[0] ?? "")}
+              unitIds={multiUnit ? Object.values(unitMap) : statementUnits}
+              currency={currency}
+              disabled={
+                action.isPending || (!multiUnit && !destinationSelected)
+              }
             />
             <FieldDescription>
-              Use an existing account UUID for the selected unit and currency.
+              Select an active account linked to every selected unit, in the
+              selected currency.
             </FieldDescription>
           </Field>
         )}
@@ -240,9 +236,10 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
             id="currency"
             value={currency}
             disabled={action.isPending}
-            onChange={(event) =>
-              setCurrency(event.target.value as ImportMapping["currency"])
-            }
+            onChange={(event) => {
+              setCurrency(event.target.value as ImportMapping["currency"]);
+              setAccountId("");
+            }}
           >
             {["BRL", "USD", "EUR"].map((value) => (
               <NativeSelectOption key={value}>{value}</NativeSelectOption>
@@ -255,7 +252,18 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
         Confirming locks the mapping. You can correct individual rejected rows
         after processing.
       </p>
-      <Button className="self-start" disabled={action.isPending}>
+      <Button
+        className="self-start"
+        disabled={
+          action.isPending ||
+          (!multiUnit && !destinationSelected) ||
+          (multiUnit &&
+            !automaticUnits &&
+            (!Object.keys(unitMap).length ||
+              Object.values(unitMap).some((id) => !id))) ||
+          (job.dataset_kind === "bank" && !accountId)
+        }
+      >
         {action.isPending ? "Confirming…" : "Confirm and import"}
       </Button>
     </form>

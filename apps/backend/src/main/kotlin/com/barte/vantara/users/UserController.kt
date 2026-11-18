@@ -225,7 +225,7 @@ class UserController(
                     jdbc.queryForList("SELECT unit_id FROM finance.member_unit WHERE member_id = ? ORDER BY unit_id", UUID::class.java, id),
                 "bankAccountIds" to
                     jdbc.queryForList(
-                        "SELECT account_id FROM finance.member_bank_account WHERE member_id = ? ORDER BY account_id",
+                        "SELECT DISTINCT account_id FROM finance.member_bank_account WHERE member_id = ? ORDER BY account_id",
                         UUID::class.java,
                         id,
                     ),
@@ -260,12 +260,13 @@ class UserController(
             it.forEach { account ->
                 val count =
                     jdbc.update(
-                        "INSERT INTO finance.member_bank_account SELECT tenant_id, ?, unit_id, account_id FROM finance.member_bank_account WHERE tenant_id = ? AND member_id = finance.actor(tenant_id) AND account_id = ?",
+                        "INSERT INTO finance.member_bank_account SELECT s.tenant_id, ?, s.unit_id, s.account_id FROM finance.member_bank_account s JOIN finance.member_unit u ON (u.tenant_id, u.unit_id, u.member_id)=(s.tenant_id, s.unit_id, ?) WHERE s.tenant_id = ? AND s.member_id = finance.actor(s.tenant_id) AND s.account_id = ?",
+                        id,
                         id,
                         tenant,
                         account,
                     )
-                if (count != 1) throw ResponseStatusException(HttpStatus.FORBIDDEN, "Bank account is outside your scope")
+                if (count == 0) throw ResponseStatusException(HttpStatus.FORBIDDEN, "Bank account is outside your scope")
             }
         }
     }

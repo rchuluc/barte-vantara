@@ -1,17 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   LogOut,
   UserRound,
   Users,
   FileSpreadsheet,
+  Building2,
+  Landmark,
 } from "lucide-react";
 import { useMe, useLogout } from "@/hooks/use-workspace";
 import { useTenant } from "@/components/workspace-provider";
 import { Button } from "@/components/ui/button";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
 import { Loading, RequestError } from "@/components/request-feedback";
 
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
@@ -19,6 +25,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const me = useMe();
   const logout = useLogout();
   const pathname = usePathname();
+  const router = useRouter();
 
   if (me.error)
     return (
@@ -41,17 +48,23 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     { path: "dashboard", label: "Overview", icon: LayoutDashboard },
     { path: "imports", label: "Data imports", icon: FileSpreadsheet },
     { path: "reconciliation", label: "Conciliação", icon: FileSpreadsheet },
+    ...(admin
+      ? [
+          { path: "business-units", label: "Business units", icon: Building2 },
+          { path: "bank-accounts", label: "Bank accounts", icon: Landmark },
+        ]
+      : []),
     admin
       ? { path: "users", label: "User management", icon: Users }
       : { path: "profile", label: "My profile", icon: UserRound },
   ];
 
   return (
-    <div className="workspace-grid min-h-dvh">
+    <div className="workspace-grid h-dvh overflow-hidden">
       <a href="#main-content" className="skip-link">
         Skip to content
       </a>
-      <aside className="flex flex-col gap-8 border-b border-border bg-card p-6 lg:border-r lg:border-b-0">
+      <aside className="flex min-h-0 flex-col gap-4 overflow-hidden border-b border-border bg-card p-4 lg:border-r lg:border-b-0">
         <Link
           href="/dashboard"
           className="text-2xl font-semibold tracking-tight"
@@ -65,10 +78,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Workspace
           </p>
-          <nav
-            aria-label="Workspace"
-            className="flex flex-wrap gap-2 lg:flex-col"
-          >
+          <nav aria-label="Workspace" className="hidden flex-col gap-1 lg:flex">
             {links.map(({ path, label, icon: Icon }) => (
               <Button
                 key={path}
@@ -90,13 +100,29 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </Button>
             ))}
           </nav>
+          <div className="lg:hidden">
+            <NativeSelect
+              aria-label="Workspace page"
+              value={
+                links.find(({ path }) => pathname.split("/").includes(path))
+                  ?.path ?? "dashboard"
+              }
+              onChange={(event) => router.push(`/${event.target.value}`)}
+            >
+              {links.map(({ path, label }) => (
+                <NativeSelectOption key={path} value={path}>
+                  {label}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
         </div>
-        <div className="mt-auto flex flex-col gap-4 border-t border-border pt-6">
-          <div className="min-w-0">
-            <p className="font-medium break-words">
+        <div className="mt-auto flex flex-col gap-3 border-t border-border pt-3">
+          <div className="hidden min-w-0 lg:block">
+            <p className="truncate font-medium">
               {me.data.display_name || me.data.email}
             </p>
-            <p className="text-sm break-all text-muted-foreground">
+            <p className="truncate text-sm text-muted-foreground">
               {me.data.email}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
@@ -115,8 +141,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
       </aside>
-      <main id="main-content" tabIndex={-1} className="min-w-0 p-6 lg:p-12">
-        {children}
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="min-h-0 min-w-0 overflow-auto p-6 lg:p-10"
+      >
+        <div className="mx-auto w-full max-w-7xl">{children}</div>
       </main>
     </div>
   );

@@ -37,7 +37,7 @@ export function ImportDetail({ id }: { id: string }) {
 
   if (query.error instanceof ApiError && query.error.status === 404) {
     return (
-      <Alert className="import-workspace mx-auto max-w-6xl">
+      <Alert className="import-workspace">
         <AlertTitle>Import unavailable</AlertTitle>
         <AlertDescription>
           <p>
@@ -52,7 +52,7 @@ export function ImportDetail({ id }: { id: string }) {
   }
 
   return (
-    <div className="import-workspace mx-auto flex max-w-6xl flex-col gap-8">
+    <div className="import-workspace flex flex-col gap-8">
       <Dialog open={leaving} onOpenChange={setLeaving}>
         <DialogTrigger asChild>
           <Button

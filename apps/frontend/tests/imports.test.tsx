@@ -38,6 +38,7 @@ let rows: ImportRow[];
 let history: ImportJob[];
 let identity = importer;
 let failure: string | undefined;
+const secondUnit = "00000000-0000-4000-8000-000000000002";
 
 function mount(node: React.ReactNode) {
   return render(
@@ -52,6 +53,12 @@ function fill(label: string, value: string) {
 }
 function click(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
+}
+
+async function selectDestination(label: string, name: string) {
+  await waitFor(() => expect(screen.getByLabelText(label)).toBeEnabled());
+  fireEvent.click(screen.getByLabelText(label));
+  fireEvent.click(await screen.findByRole("option", { name }));
 }
 
 beforeEach(() => {
@@ -69,7 +76,22 @@ beforeEach(() => {
     if (path.includes("/imports/preview?"))
       return Response.json({ ...job, rows });
     if (path === "/api/business-units")
-      return Response.json([{ id: unitId, name: "Head office" }]);
+      return Response.json([
+        { id: unitId, name: "Head office", active: true },
+        { id: secondUnit, name: "Branch", active: true },
+      ]);
+    if (path === "/api/bank-accounts")
+      return Response.json([
+        {
+          id: unitId,
+          unit_ids: [unitId, secondUnit],
+          configurable: true,
+          bank_code: "341",
+          account_ref: "123",
+          currency: "BRL",
+          active: true,
+        },
+      ]);
     if (path.includes("/rows?"))
       return Response.json(path.includes("after=0&") ? rows : []);
     if (path.includes("/rows/")) {
@@ -213,8 +235,7 @@ it("validates file selection and allows cancelling and reopening", async () => {
 it("maps a file, processes records and reports completion", async () => {
   mount(await ImportPage({ params: Promise.resolve({ id: importId }) }));
   expect(await screen.findByText("Review column mapping")).toBeInTheDocument();
-  await screen.findByRole("option", { name: "Head office" });
-  fill("Business unit *", unitId);
+  await selectDestination("Business unit *", "Head office");
   fill("amount *", "Amount");
   fill("Date format", "dd/MM/uuuu");
   fill("Decimal separator", ",");
@@ -271,8 +292,7 @@ it("surfaces mapping failures and allows retrying business unit lookup", async (
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   failure = undefined;
   click("Try again");
-  await screen.findByRole("option", { name: "Head office" });
-  fill("Business unit *", unitId);
+  await selectDestination("Business unit *", "Head office");
   failure = "/confirm";
   click("Confirm and import");
   expect(await screen.findByRole("alert")).toBeInTheDocument();
@@ -293,11 +313,10 @@ it("supports bank destination and custom multi-unit mappings", async () => {
     suggestedColumns: {},
   };
   mount(<ImportMappingForm job={job} />);
-  await screen.findByRole("option", { name: "Head office" });
   fill("unit", "Customer");
   fill("Source unit names *", "HQ");
-  fill("Destination for HQ *", unitId);
-  fill("Bank account ID *", unitId);
+  await selectDestination("Destination for HQ *", "Head office");
+  await selectDestination("Bank account *", "341 · 123 · BRL");
   fill("amount *", "Amount");
   fill("booking date *", "Due date");
   fill("description *", "Customer");
@@ -592,8 +611,7 @@ it("discards an unconfirmed preview without saving a file or import", async () =
 it("persists the original only on Confirm and import, then processes it", async () => {
   mount(<PreviewFlow />);
   await openPreview();
-  await screen.findByRole("option", { name: "Head office" });
-  fill("Business unit *", unitId);
+  await selectDestination("Business unit *", "Head office");
   click("Confirm and import");
   expect(await screen.findByText("Processing complete")).toBeInTheDocument();
   const writes = fetchMock.mock.calls.filter(
@@ -641,9 +659,18 @@ it("uses the detected Itau bank dataset for mapping and persistence", async () =
   expect(screen.getByText(/Bank statements/)).toBeInTheDocument();
   expect(screen.getByLabelText("booking date *")).toHaveValue("data");
   expect(screen.queryByLabelText("due on *")).not.toBeInTheDocument();
-  await screen.findByRole("option", { name: "Head office" });
-  fill("Business unit *", unitId);
-  fill("Bank account ID *", unitId);
+  await selectDestination("Business unit *", "Head office");
+  fireEvent.click(screen.getByRole("option", { name: "Branch" }));
+  expect(screen.getByRole("option", { name: "Head office" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  expect(screen.getByRole("option", { name: "Branch" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  fireEvent.click(screen.getByLabelText("Business unit *"));
+  await selectDestination("Bank account *", "341 · 123 · BRL");
   click("Confirm and import");
   await screen.findByText("Processing complete");
   const upload = fetchMock.mock.calls.find(([url]) =>
@@ -654,6 +681,7 @@ it("uses the detected Itau bank dataset for mapping and persistence", async () =
     String(url).endsWith("/confirm"),
   );
   expect(JSON.parse(String(confirmation?.[1]?.body))).toMatchObject({
+    unitIds: [unitId, secondUnit],
     accountId: unitId,
     dateFormat: "dd/MM/uuuu",
     decimal: ",",
@@ -663,8 +691,7 @@ it("uses the detected Itau bank dataset for mapping and persistence", async () =
 it("keeps a confirmed upload retryable if mapping confirmation fails", async () => {
   mount(<PreviewFlow />);
   await openPreview();
-  await screen.findByRole("option", { name: "Head office" });
-  fill("Business unit *", unitId);
+  await selectDestination("Business unit *", "Head office");
   failure = "/confirm";
   click("Confirm and import");
   await screen.findByText(/temporarily unavailable/);

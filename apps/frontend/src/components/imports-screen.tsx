@@ -41,7 +41,7 @@ export function ImportsScreen() {
   );
 
   return (
-    <div className="import-workspace mx-auto flex max-w-6xl flex-col gap-8 pb-20">
+    <div className="import-workspace flex flex-col gap-8 pb-20">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">

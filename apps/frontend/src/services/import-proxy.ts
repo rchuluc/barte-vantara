@@ -10,7 +10,6 @@ import {
   importSchema,
   importSummarySchema,
   importRowSchema,
-  unitsSchema,
   mappingSchema,
 } from "@/lib/import-contracts";
 import { backend } from "@/services/backend";
@@ -32,8 +31,6 @@ export async function importProxy(
     });
   const invalid = () => new ApiError(400, statusMessage(400));
 
-  if (path === "business-units" && method === "GET")
-    return reply(await backend(path, unitsSchema, options));
   if (
     (resource.length === 1 || path === "imports/preview") &&
     method === "POST"

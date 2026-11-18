@@ -27,4 +27,17 @@ beforeEach(() => {
   ]);
 });
 vi.mock("server-only", () => ({}));
+beforeEach(() => {
+  if (typeof window !== "undefined") {
+    window.HTMLElement.prototype.scrollIntoView = vi.fn();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+  }
+});
 afterEach(cleanup);

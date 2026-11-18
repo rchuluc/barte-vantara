@@ -12,6 +12,36 @@ import java.sql.SQLException
 
 class FinancialDatabaseTests {
     @Test
+    fun `shared account associations enforce unit account and tenant scope`() {
+        session("admin", "a") { connection ->
+            connection.createStatement().execute("SELECT finance.register_unit(md5('a')::uuid, 'Shared destination')")
+            val units = "ARRAY[md5('a-unit')::uuid,(SELECT id FROM finance.business_unit WHERE name='Shared destination')]"
+            connection.createStatement().execute("SELECT finance.set_account_units(md5('a')::uuid, md5('account')::uuid, $units)")
+            assertEquals(2, count(connection, "finance.bank_account_unit WHERE account_id=md5('account')::uuid"))
+            assertDenied(connection, "UPDATE finance.bank_account_unit SET active=false")
+            assertDenied(connection, "DELETE FROM finance.bank_account_unit")
+            assertDenied(
+                connection,
+                "INSERT INTO finance.bank_account_unit VALUES (md5('a')::uuid,md5('a-other')::uuid,md5('account')::uuid,'BRL',true)",
+            )
+            assertDenied(connection, "SELECT finance.set_account_units(md5('a')::uuid, md5('account')::uuid, ARRAY[]::uuid[])")
+            assertDenied(connection, "SELECT finance.set_account_units(md5('a')::uuid, md5('account')::uuid, ARRAY[NULL]::uuid[])")
+            assertDenied(connection, "SELECT finance.set_account_units(md5('a')::uuid, md5('account')::uuid, ARRAY[md5('b-unit')::uuid])")
+            assertDenied(connection, "SELECT finance.set_account_units(md5('b')::uuid, md5('account')::uuid, $units)")
+            identity(connection, "ar")
+            assertEquals(1, count(connection, "finance.bank_account_unit WHERE account_id=md5('account')::uuid"))
+            assertEquals(1, count(connection, "finance.bank_account"))
+            assertDenied(connection, "SELECT finance.set_account_units(md5('a')::uuid, md5('account')::uuid, ARRAY[md5('a-unit')::uuid])")
+            identity(connection, "admin")
+            connection.createStatement().execute(
+                "SELECT finance.set_account_units(md5('a')::uuid, md5('account')::uuid, ARRAY[md5('a-unit')::uuid])",
+            )
+            assertEquals(1, count(connection, "finance.bank_account_unit WHERE account_id=md5('account')::uuid AND active"))
+            assertEquals(2, count(connection, "finance.bank_account_unit WHERE account_id=md5('account')::uuid"))
+        }
+    }
+
+    @Test
     fun `ingestion RLS protects staged files rows scopes and audit from other identities`() {
         session("ar", "a") { connection ->
             connection.createStatement().execute(
@@ -162,14 +192,48 @@ class FinancialDatabaseTests {
                 )
                 connection.createStatement().execute("ALTER DATABASE ${database.databaseName} OWNER TO migration_owner")
             }
-            val flyway =
+            val configuration =
                 Flyway
                     .configure()
                     .dataSource(database.jdbcUrl, "migration_owner", "migrationTestOnly")
                     .placeholders(mapOf("appPassword" to "testRuntimePassword"))
+            assertEquals(
+                12,
+                configuration
+                    .target("12")
                     .load()
-            assertEquals(11, flyway.migrate().migrationsExecuted)
+                    .migrate()
+                    .migrationsExecuted,
+            )
+            DriverManager.getConnection(database.jdbcUrl, "migration_owner", "migrationTestOnly").use { connection ->
+                connection.createStatement().execute(
+                    FinancialDatabaseTests::class.java.getResource("/database/authorization.sql")!!.readText(),
+                )
+                connection.createStatement().execute(
+                    FinancialDatabaseTests::class.java.getResource("/database/financial-fixtures.sql")!!.readText(),
+                )
+            }
+            val flyway = configuration.target("latest").load()
+            assertEquals(2, flyway.migrate().migrationsExecuted)
             assertEquals(0, flyway.migrate().migrationsExecuted)
+            DriverManager.getConnection(database.jdbcUrl, "migration_owner", "migrationTestOnly").use { connection ->
+                assertEquals(2, count(connection, "finance.bank_account_unit"))
+                assertEquals(
+                    0,
+                    count(
+                        connection,
+                        "finance.bank_entry e LEFT JOIN finance.bank_account_unit u USING (tenant_id, unit_id, account_id, currency) WHERE u.account_id IS NULL",
+                    ),
+                )
+                assertTrue(count(connection, "finance.bank_entry") > 0)
+                assertEquals(
+                    0,
+                    count(
+                        connection,
+                        "pg_class WHERE oid='finance.bank_account_unit'::regclass AND NOT (relrowsecurity AND relforcerowsecurity)",
+                    ),
+                )
+            }
             DriverManager.getConnection(database.jdbcUrl, "app_user", "testRuntimePassword").use { connection ->
                 assertEquals(0, count(connection, "finance.title"))
             }
@@ -468,7 +532,9 @@ class FinancialDatabaseTests {
             }
         }
         session("admin", "a") {
-            assertEquals(0, count(it, "finance.bank_account"))
+            assertEquals(1, count(it, "finance.bank_account"))
+            assertEquals(0, count(it, "finance.bank_account WHERE unit_id = md5('a-other')::uuid"))
+            assertEquals(0, count(it, "finance.bank_account WHERE tenant_id = md5('b')::uuid"))
             assertEquals(0, count(it, "finance.audit_detail WHERE category <> 'configure'"))
             assertTrue(count(it, "finance.audit_metadata") > 0)
             assertTrue(count(it, "finance.import_batch") > 0)

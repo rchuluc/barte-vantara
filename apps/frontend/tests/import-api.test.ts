@@ -55,7 +55,7 @@ afterEach(() => vi.unstubAllGlobals());
 it.each([
   ["imports", [job]],
   ["imports?offset=20&limit=20", [job]],
-  ["business-units", [{ id: unitId, name: "HQ" }]],
+  ["business-units", [{ id: unitId, name: "HQ", active: true }]],
   [`imports/${importId}`, job],
   [`imports/${importId}/rows`, [sourceRow]],
 ])("proxies validated tenant-scoped reads: %s", async (path, result) => {

@@ -21,6 +21,10 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Loading, RequestError } from "@/components/request-feedback";
+import {
+  BusinessUnitCombobox,
+  BankAccountCombobox,
+} from "@/components/destination-picker";
 
 export function UserEditor({
   user,
@@ -32,6 +36,10 @@ export function UserEditor({
   const roles = useRoles();
   const save = useSaveUser();
   const [validation, setValidation] = useState<string>();
+  const [unitIds, setUnitIds] = useState(user?.unitIds ?? []);
+  const [bankAccountIds, setBankAccountIds] = useState(
+    user?.bankAccountIds ?? [],
+  );
 
   if (roles.error)
     return (
@@ -59,16 +67,11 @@ export function UserEditor({
             event.preventDefault();
             const form = event.currentTarget;
             const data = new FormData(form);
-            const ids = (name: string) =>
-              String(data.get(name))
-                .split(",")
-                .map((id) => id.trim())
-                .filter(Boolean);
             const body = {
               displayName: String(data.get("displayName")),
               roles: data.getAll("roles").map(String),
-              unitIds: ids("unitIds"),
-              bankAccountIds: ids("bankAccountIds"),
+              unitIds,
+              bankAccountIds,
             };
             const input = user
               ? patchUserSchema.safeParse(body)
@@ -80,7 +83,7 @@ export function UserEditor({
 
             if (!input.success) {
               setValidation(
-                "Select at least one role and enter valid, comma-separated UUIDs for access scopes.",
+                "Select at least one role and check the account details and access scopes.",
               );
               form
                 .querySelector<HTMLInputElement>('input[name="roles"]')
@@ -173,24 +176,31 @@ export function UserEditor({
               </div>
             </FieldSet>
             <Field>
-              <FieldLabel htmlFor="unitIds">Business unit IDs</FieldLabel>
-              <Input
+              <FieldLabel htmlFor="unitIds">Business units</FieldLabel>
+              <BusinessUnitCombobox
                 id="unitIds"
-                name="unitIds"
-                defaultValue={user?.unitIds.join(", ")}
-                aria-describedby="unit-help"
+                multiple
+                value={unitIds}
+                disabled={save.isPending}
+                onChange={(value) => {
+                  setUnitIds(value);
+                  setBankAccountIds([]);
+                }}
               />
               <FieldDescription id="unit-help">
-                Comma-separated UUIDs. Leave blank for no units.
+                Select one or more units. Changing units clears selected bank
+                accounts.
               </FieldDescription>
             </Field>
             <Field>
-              <FieldLabel htmlFor="bankAccountIds">Bank account IDs</FieldLabel>
-              <Input
+              <FieldLabel htmlFor="bankAccountIds">Bank accounts</FieldLabel>
+              <BankAccountCombobox
                 id="bankAccountIds"
-                name="bankAccountIds"
-                defaultValue={user?.bankAccountIds.join(", ")}
-                aria-describedby="account-help"
+                multiple
+                value={bankAccountIds}
+                onChange={setBankAccountIds}
+                unitIds={unitIds}
+                disabled={save.isPending || !unitIds.length}
               />
               <FieldDescription id="account-help">
                 Only accounts in your scope can be assigned. Removing units may

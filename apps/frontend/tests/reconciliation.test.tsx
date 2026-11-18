@@ -195,6 +195,23 @@ it("allocates the Doce Ponto credit across two titles and preserves edits throug
   });
 });
 
+it("allows only titles in the selected statement units", () => {
+  data.banks[0].statement_unit_ids = [id(90), id(91)];
+  data.titles[1].unit_id = id(91);
+  data.titles[2].unit_id = id(92);
+  mount();
+  choose();
+  expect(
+    screen.getByRole("checkbox", { name: "Selecionar protheus NF 10" }),
+  ).toBeEnabled();
+  expect(
+    screen.getByRole("checkbox", { name: "Selecionar protheus NF 11" }),
+  ).toBeEnabled();
+  expect(
+    screen.getByRole("checkbox", { name: "Selecionar protheus NF 12" }),
+  ).toBeDisabled();
+});
+
 it("shows the title balance for a partial allocation and prevents excess and malformed amounts", () => {
   mount();
   choose("BELA VISTA");

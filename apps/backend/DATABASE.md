@@ -70,6 +70,37 @@ record-level permissions, including mixed-access files.
   independent `summary_publication`. Publication is explicit, not an automatic sum
   that could reveal raw records through a view.
 
+### Shared bank accounts
+
+V13 links one `bank_account` to multiple business units through
+`bank_account_unit`. Existing accounts and financial records retain their IDs;
+the original `bank_account.unit_id` remains only for compatibility. New code uses
+the association table. Account currency remains fixed.
+
+Account grants remain explicit per member, unit and account. Assigning an account
+to a user copies only the administrator's grants intersecting the user's units.
+Account responses include only scoped, active links in `unit_ids`. Global edits
+require configure permission and account access in every linked unit.
+
+Removing a link soft-disables it: new import confirmations reject that destination,
+while historical entries, balances and their existing access restrictions remain.
+Sharing an account does not duplicate or reassign its existing financial records.
+
+V14 accepts `unitIds` on bank-import confirmation for a statement shared by one or
+more BUs. This is exclusive with `unitId` and a mapped source unit column; those
+legacy row-routing modes remain supported. Every selected BU must be active and
+grant the importer bank access to the selected account. Each source row produces
+one source and one bank entry, with immutable `source_record.statement_units`.
+The original `unit_id` is provenance, not ownership of the full receipt.
+
+Reading a shared movement requires account access and financial permission in at
+least one selected BU. Matching requires title access and membership of the title's
+BU in the statement scope. Proposals use an authorized participating BU; independent
+review still requires approval in the proposal and every allocated title BU.
+Confirmed allocations consume one global movement balance across all BUs, including
+allocations hidden from a narrowly scoped operator. Removing account links blocks
+new imports but retains historical evidence. Existing imported rows are not broadened.
+
 ### ISO vocabulary and money
 
 | camt.053 concept                                   | Local model                                                                       |
@@ -242,8 +273,8 @@ See [database test results](database-test-results.md).
   are tested hypotheses, not migrations that confirm the sample.
 - Updated supplier bill and WhatsApp chronology are unresolved evidence. Interest,
   delivery, approval authenticity and payment identity need human investigation.
-- Initial allocations require one scoped unit across the linked title and movement.
-  Shared-account unit attribution, cross-unit clearing, FX, settlement reversals,
+- Shared statements allow allocation to titles in their selected BUs, subject to
+  explicit user and reviewer scope. Cross-unit clearing, FX, settlement reversals,
   voiding approvals and accounting adjustments need explicit business rules.
 - Unit routing, full currency/historical currency coverage, artifact immutability
   enforcement, retention and aggregate publication policy need production decisions.

@@ -46,6 +46,7 @@ export const mappingSchema = z
   .object({
     columns: z.record(z.string(), z.string().min(1)),
     unitId: z.uuid().optional(),
+    unitIds: z.array(z.uuid()).min(1).max(100).optional(),
     units: z.record(z.string(), z.uuid()).optional(),
     accountId: z.uuid().optional(),
     dateFormat: z.enum(["dd/MM/uuuu", "uuuu-MM-dd"]),

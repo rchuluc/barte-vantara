@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Plus, Users } from "lucide-react";
 import {
   useMe,
@@ -44,7 +45,7 @@ export function UsersScreen() {
 
 function UserManagement({ actorId }: { actorId: string }) {
   const [offset, setOffset] = useState(0);
-  const [editor, setEditor] = useState<User | "new" | null>(null);
+  const [editor, setEditor] = useState<User | null>(null);
   const [confirmation, setConfirmation] = useState<User | null>(null);
   const [notice, setNotice] = useState("");
   const users = useUsers(offset);
@@ -52,7 +53,7 @@ function UserManagement({ actorId }: { actorId: string }) {
   const deactivate = useDeactivateUser();
 
   return (
-    <section className="mx-auto flex max-w-5xl flex-col gap-8">
+    <section className="flex flex-col gap-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="mb-2 text-sm text-muted-foreground">
@@ -65,21 +66,18 @@ function UserManagement({ actorId }: { actorId: string }) {
             Manage the people and permissions in your workspace.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setEditor("new");
-            setNotice("");
-          }}
-        >
-          <Plus data-icon="inline-start" aria-hidden="true" />
-          Add user
+        <Button asChild>
+          <Link href="/users/new">
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            Add user
+          </Link>
         </Button>
       </header>
       {notice && <p role="status">{notice}</p>}
       {editor && (
         <UserEditor
-          key={editor === "new" ? "new" : editor.id}
-          user={editor === "new" ? undefined : editor}
+          key={editor.id}
+          user={editor}
           close={(saved) => {
             setEditor(null);
             if (saved) setNotice("User saved.");

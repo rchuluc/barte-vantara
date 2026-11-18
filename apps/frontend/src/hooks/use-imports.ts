@@ -48,15 +48,6 @@ export function useImportRows(id: string, after: number) {
   });
 }
 
-export function useBusinessUnits() {
-  const { slug } = useTenant();
-
-  return useQuery({
-    queryKey: [slug, "business-units"],
-    queryFn: () => imports.units(),
-  });
-}
-
 export function usePreviewImport() {
   const { setDraft } = useImportDraft();
 

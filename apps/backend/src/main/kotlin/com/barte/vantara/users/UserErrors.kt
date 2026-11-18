@@ -16,6 +16,7 @@ import java.sql.SQLException
         UserController::class,
         com.barte.vantara.tenants.TenantController::class,
         com.barte.vantara.finance.BusinessUnits::class,
+        com.barte.vantara.finance.BankAccounts::class,
         com.barte.vantara.finance.ImportController::class,
         com.barte.vantara.finance.ReconciliationController::class,
     ],
