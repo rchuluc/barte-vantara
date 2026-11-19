@@ -7,12 +7,19 @@ inputs:
   image:
     description: Optional local image to scan, including unfixed CVEs
     default: ""
+  ignorefile:
+    description: Optional scoped Trivy exception file
+    default: .trivyignore
 runs:
   using: composite
   steps:
     - name: Scan source
       uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+      env:
+        TRIVY_IGNOREFILE: ${{ inputs.ignorefile }}
+        TRIVY_SHOW_SUPPRESSED: "true"
       with:
+        version: v0.76.2
         scan-type: fs
         scan-ref: ${{ inputs.source }}
         scanners: vuln,secret,misconfig
@@ -22,7 +29,11 @@ runs:
     - name: Scan image
       if: inputs.image != ''
       uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+      env:
+        TRIVY_IGNOREFILE: ${{ inputs.ignorefile }}
+        TRIVY_SHOW_SUPPRESSED: "true"
       with:
+        version: v0.76.2
         image-ref: ${{ inputs.image }}
         severity: HIGH,CRITICAL
         exit-code: "1"

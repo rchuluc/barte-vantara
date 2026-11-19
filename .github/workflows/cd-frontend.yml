@@ -66,6 +66,7 @@ jobs:
         with:
           source: apps/frontend
           image: vantara-frontend:${{ github.sha }}
+          ignorefile: apps/frontend/.trivyignore.yaml
 
       - uses: ./.github/actions/docker-efficiency
         with:

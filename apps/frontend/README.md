@@ -27,6 +27,18 @@ availability so a backend outage does not restart every frontend task.
 Tenants are selected only by hostname. Open `http://vantara.localhost:3217/login`
 for the seeded workspace. Tenant-prefixed browser paths are rejected.
 
+## Security scan exception
+
+CI uses `.trivyignore.yaml` for the withdrawn picomatch advisory
+`CVE-2026-112366` only, scoped to version 4.0.7 and expiring on 2026-12-19.
+The file includes upstream evidence; remove the exception when Trivy's database
+reflects the withdrawal. Other high/critical findings, including unfixed ones,
+still fail CI. From the repository root, reproduce the source scan with:
+
+```sh
+trivy fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 1 --ignorefile apps/frontend/.trivyignore.yaml --show-suppressed --skip-dirs node_modules --skip-dirs .next apps/frontend
+```
+
 ## Internationalization
 
 `next-intl` provides `pt-BR` (Brazilian Portuguese, the default), `en` (English),

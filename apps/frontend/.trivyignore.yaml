@@ -1,0 +1,13 @@
+vulnerabilities:
+  - id: CVE-2026-112366
+    purls:
+      - pkg:npm/picomatch@4.0.7
+    expired_at: 2026-12-19
+    statement: >-
+      GHSA-fc5q-39xc-vjpf was withdrawn on 2026-11-18. The maintainer
+      rejected the report as expected behavior for user-defined glob patterns.
+      This dependency is used by next-intl's development file watcher;
+      application users do not supply its glob patterns. Remove this temporary
+      exception once Trivy's database reflects the withdrawal.
+      https://github.com/advisories/GHSA-fc5q-39xc-vjpf
+      https://github.com/micromatch/picomatch/pull/235#issuecomment-6315749381
