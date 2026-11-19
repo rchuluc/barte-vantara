@@ -1,18 +1,21 @@
+> commit: https://github.com/rchuluc/barte-vantara/commit/3d202f6
+
 # Minhas considerações
 
-A [primeira sessão](../01-bootstrap/considerations.md) de bootstrap criou as actions do GitHub Actions, mas não seguiram boas práticas. Nessa sessão endereço os problemas e peço para o agente resolver. O maior problema é o uso de condicionais dentro do mesmo workflow, seria melhor criar workflows separados para cada aplicação, ativados condicionalmente, e steps compartilhados como `workflow_call`.
+O prompt utilizado e a sessão com o agente estão em [session.md](./session.md).
+A [primeira sessão](../01-bootstrap/considerations.md) criou os pipelines, mas a separação de responsabilidades precisava melhorar. Pedi CI/CD por aplicação, filtros por paths e composite actions apenas para etapas realmente compartilhadas.
 
-Nesse step, migramos as actions para usar composite actions reutilizáveis em /actions, e cada workflow reaproveita isso.
+As etapas comuns ficaram em `.github/actions/`. O deploy passou a usar AWS CLI no lugar dos scripts Python, preservando migration antes do rollout e verificação de saúde.
 
-O CI de infraestrutura faz um plan e adiciona um comentário do que vai ser aplicado, mas não faz o apply. O apply é feito manualmente.
+O CI de infraestrutura foi preparado para fazer plan e comentar o resultado no PR, sem apply automático.
 
-Outro ponto, é um Terraform específico de bootstrap, que cria o bucket S3 para o backend remoto, e o state do Terraform é versionado e bloqueado. O agente não considerou isso na primeira run.
+Também pedi um Terraform de bootstrap separado para criar o bucket S3 do estado remoto, com versionamento e proteções de acesso.
 
-# Erros e coreções
+# Erros e correções
 
-1. O primeiro run não considerou um estado remoto do Terraform, que foi ajustado na primeira etapa dessa segunda run.
-2. A IA falhou no conceito de reaproveitamento, funções específicas do frontend/backend foram criadas dentro de uma mesma action com condições. O que não faz sentido com o que foi pedido. Pedi para refatorar para remover condicionais e mover para dentro do CI de cada projeto.
+1. A base ainda não tinha estado remoto nem role específica para o plan. O agente adicionou a configuração e documentou os pré-requisitos.
+2. A IA colocou verificações específicas de frontend/backend em uma action com condicionais por aplicação. Pedi para remover essa action e levar essas etapas para os respectivos workflows.
 
 # Conclusão
 
-O agente criou os arquivos de infraestrutura que apliquei na minha conta da AWS, uma das premissas que sigo é deploy desde o início.
+Os 18 testes de workflows e seis testes Terraform passaram. Nenhum recurso AWS foi criado nessa sessão; o apply e os ajustes do primeiro deploy ficaram na [sessão 03](../03-infrastructure-apply/considerations.md), quando esse trabalho também foi commitado. Uma das premissas que sigo é deploy desde o início.
