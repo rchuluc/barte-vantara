@@ -9,7 +9,7 @@ inputs:
     default: ""
   ignorefile:
     description: Optional scoped Trivy exception file
-    default: .trivyignore
+    default: ""
 runs:
   using: composite
   steps:
