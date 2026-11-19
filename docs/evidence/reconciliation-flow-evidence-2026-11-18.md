@@ -164,7 +164,7 @@ workspace MCP resource. Browser cookies and normal web-login tokens are not MCP
 credentials. The 503 response does not by itself identify which configuration
 value is missing or invalid.
 
-The existing [MCP setup documentation](mcp-imports.md) explicitly states that
+The existing [MCP setup documentation](../guides/mcp-imports.md) explicitly states that
 Floci 2.3.0 cannot issue the required OAuth resource-bound token and that there is
 no local authentication bypass. No bypass or fabricated token was used here.
 

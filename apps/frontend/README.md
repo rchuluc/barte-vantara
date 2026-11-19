@@ -104,7 +104,7 @@ npm run tenant:add -- --name "Acme Finance" --slug acme --primary '#112233' \
 The script generates the UUID and runs the local Compose seed to create branding
 and an administrator with development password `@Test123`. Open
 `http://acme.localhost:3000/login` (or port 3217 for a separate dev server).
-See [tenant provisioning](../../docs/tenant-provisioning.md) for production registration.
+See [tenant provisioning](../../docs/guides/tenant-provisioning.md) for production registration.
 
 Each tenant needs a corresponding database tenant and active memberships. Slugs
 and exact domain mappings must be unique; arbitrary `vantara.*` domains are not

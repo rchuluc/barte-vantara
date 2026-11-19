@@ -1,4 +1,4 @@
-# Conciliação de recebíveis
+# Receivables reconciliation
 
 The workbench now also supports payable/debit reconciliation and AI-origin
 proposals. See [agent searches and reconciliation](mcp-reconciliation.md) for

@@ -133,7 +133,7 @@ Independent approval grants are provisioner-managed in PostgreSQL, not assigned
 through user-management routes. A complete reconciliation test needs a proposer
 and a different reviewer with the relevant unit, account and approval scopes.
 See [identity and authorization](apps/backend/AUTH.md) and the
-[local reconciliation walkthrough](docs/reconciliation-flow-evidence-2026-11-18.md).
+[local reconciliation walkthrough](docs/evidence/reconciliation-flow-evidence-2026-11-18.md).
 
 ### 3. Try the supplied data
 
@@ -149,7 +149,7 @@ Read [the data-pack guide](data_pack/00_LEIA-ME.md), then use `/imports`:
    allocations and have an independent reviewer confirm them.
 
 For unstructured payables, configure OpenRouter below and use an AP account.
-Follow the [AI import test guide](docs/ai-import-assistant-test.md), which includes
+Follow the [AI import test guide](docs/guides/ai-import-assistant-test.md), which includes
 explicit choices for ambiguous sample dates and duplicate invoice references.
 
 ### 4. Inspect, restart, or reset
@@ -317,8 +317,8 @@ Web login and MCP login are separate sessions.
 
 The MCP host must request human approval before invoking payable-import writes.
 This is separate from the platform chat's signed confirmation button. No MCP
-tool can approve reconciliations. See [MCP setup](docs/mcp-imports.md) and
-[agent queries and proposals](docs/mcp-reconciliation.md).
+tool can approve reconciliations. See [MCP setup](docs/guides/mcp-imports.md) and
+[agent queries and proposals](docs/guides/mcp-reconciliation.md).
 
 Production stores the OpenRouter and Datadog API keys in **AWS Secrets Manager**;
 Terraform receives secret ARNs, not raw keys. RDS migration and runtime passwords
@@ -412,7 +412,7 @@ For a new AWS environment, bootstrap the encrypted/versioned state bucket first,
 configure OIDC, certificate/DNS and secret references, publish initial images,
 then apply the application stack and run its first migration before starting
 services. Follow the [infrastructure guide](infra/README.md) and
-[tenant provisioning guide](docs/tenant-provisioning.md) for the exact variables
+[tenant provisioning guide](docs/guides/tenant-provisioning.md) for the exact variables
 and operator steps. Protect Terraform state: it contains database credentials.
 
 Infrastructure task-template changes need a service revision update; image-only
@@ -433,21 +433,25 @@ documented in the infrastructure guide; budget alerts are not spending caps.
 
 ## Documentation and development history
 
+Start with the [documentation index](docs/README.md) for architecture decisions,
+operational guides and dated verification evidence.
+
 | Guide | Contents |
 | --- | --- |
 | [Backend](apps/backend/README.md) | Runtime, migrations and backend checks |
 | [Frontend](apps/frontend/README.md) | Routing, services/hooks, UI and internationalization |
 | [Database](apps/backend/DATABASE.md) | Financial schema, provenance and RLS contract |
 | [Identity](apps/backend/AUTH.md) | Roles, scopes, seed accounts and independent approvals |
-| [Structured ingestion](docs/structured-ingestion.md) | Upload, mapping, batch processing and corrections |
-| [AI extraction](docs/unstructured-extraction.md) | Prompt versions, evidence and benchmark boundaries |
-| [AI import testing](docs/ai-import-assistant-test.md) | Manual confirmation/cancellation scenarios |
-| [Reconciliation](docs/receivables-reconciliation.md) | Workbench and allocation behavior |
-| [MCP imports](docs/mcp-imports.md) | Cognito setup and delegated import tools |
-| [MCP reconciliation](docs/mcp-reconciliation.md) | Queries, match evidence and human-reviewed proposals |
-| [Local end-to-end evidence](docs/reconciliation-flow-evidence-2026-11-18.md) | UI import, proposal, independent review and balances |
+| [Architecture decisions](docs/adr/README.md) | Context, decisions, consequences and original references |
+| [Structured ingestion](docs/guides/structured-ingestion.md) | Upload, mapping, batch processing and corrections |
+| [AI extraction](docs/guides/unstructured-extraction.md) | Prompt versions, evidence and benchmark boundaries |
+| [AI import testing](docs/guides/ai-import-assistant-test.md) | Manual confirmation/cancellation scenarios |
+| [Reconciliation](docs/guides/receivables-reconciliation.md) | Workbench and allocation behavior |
+| [MCP imports](docs/guides/mcp-imports.md) | Cognito setup and delegated import tools |
+| [MCP reconciliation](docs/guides/mcp-reconciliation.md) | Queries, match evidence and human-reviewed proposals |
+| [Verification evidence](docs/evidence/README.md) | Historical checks, local UI walkthrough and live MCP results |
 | [Infrastructure](infra/README.md) | Bootstrap, AWS configuration, costs and deployment |
-| [Tenant provisioning](docs/tenant-provisioning.md) | Production workflow and local tenant creation |
+| [Tenant provisioning](docs/guides/tenant-provisioning.md) | Production workflow and local tenant creation |
 | [Engineering rules](AGENTS.md) | Code standards, tests and commit policy |
 | [AI development sessions](ai-development-sessions/README.md) | Session-by-session decisions, corrections, validation limits and commits |
 

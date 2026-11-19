@@ -3,7 +3,7 @@
 ## Source
 
 Open **Imports → Ask Vantara** and attach
-[`data_pack/04_caixa_de_entrada_contas_a_pagar.txt`](../data_pack/04_caixa_de_entrada_contas_a_pagar.txt).
+[`data_pack/04_caixa_de_entrada_contas_a_pagar.txt`](../../data_pack/04_caixa_de_entrada_contas_a_pagar.txt).
 Send: `Analise esta caixa de entrada e me ajude a importar os dados.`
 
 Before confirmation, no import or payable should be saved. The assistant should
