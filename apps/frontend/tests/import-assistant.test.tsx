@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "./render";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { ImportAssistant } from "@/components/import-assistant";
@@ -299,7 +299,7 @@ it.each([true, false])(
       ).toBeEnabled(),
     );
     expect(screen.getByRole("listitem")).toHaveTextContent(
-      "Supplier · 0001BRL 12.00 · Due 2026-12-01",
+      "Supplier · 0001R$12.00 · Due 12/1/26",
     );
     expect(screen.getByText("Destination: Main")).toBeInTheDocument();
     expect(screen.getByLabelText("Message Vantara")).toBeDisabled();
@@ -330,7 +330,7 @@ it.each([true, false])(
       expect(screen.getByText("Confirmed by you")).toBeInTheDocument();
       expect(screen.getByText("Import result")).toBeInTheDocument();
       expect(
-        screen.queryByText("Import 1 payable record(s)?"),
+        screen.queryByText("Import 1 payable record?"),
       ).not.toBeInTheDocument();
     }
   },

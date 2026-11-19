@@ -1,11 +1,5 @@
 import { useState } from "react";
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "./render";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import {

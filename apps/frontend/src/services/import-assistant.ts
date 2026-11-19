@@ -17,6 +17,7 @@ import { assistantImportSchema } from "@/lib/assistant-import";
 import { unitsSchema } from "@/lib/import-contracts";
 import { backend } from "@/services/backend";
 import { saveAssistantImport } from "@/services/assistant-import";
+import { defaultLocale, type Locale } from "@/i18n/config";
 
 const inputSchema = z.object({
   messages: z
@@ -51,7 +52,7 @@ const inputSchema = z.object({
     .max(40),
 });
 
-const system = `You are Vantara, a helpful financial import assistant. Have a natural conversation, replying in the user's language.
+const system = `You are Vantara, a helpful financial import assistant. Have a natural conversation.
 When a user pastes an invoice email, payment follow-up or other financial source, use extractEvidence automatically. Never ask them to switch modes or click Analyze.
 The tool's messageNumber counts USER messages only, from 1 (earliest). Choose the message containing the source. It reads the exact original text; you cannot change it.
 After extraction, lead with what you found: document, amount and due date. Ask ONE question at a time to resolve missing supplier, document, full due date, currency or ambiguous amounts. Never invent these values. Do not bury the user in evidence quotes or repeat their email.
@@ -68,7 +69,7 @@ export async function importAssistant(
   body: unknown,
   me: Me,
   signal: AbortSignal,
-  options: { token: string; tenantId: string },
+  options: { token: string; tenantId: string; locale?: Locale },
 ) {
   if (!me.permissions.includes("draft_payable"))
     throw new ApiError(403, statusMessage(403));
@@ -160,7 +161,7 @@ export async function importAssistant(
   }
   const result = streamText({
     model: createOpenRouter({ apiKey })(model),
-    system,
+    system: `${system}\nReply in the user's selected interface language: ${options.locale ?? defaultLocale}. Preserve original source quotations and identifiers.`,
     messages: await convertToModelMessages(validated),
     maxOutputTokens: 6000,
     maxRetries: 0,

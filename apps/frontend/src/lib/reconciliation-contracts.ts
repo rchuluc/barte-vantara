@@ -109,13 +109,6 @@ export type BankCredit = z.infer<typeof bankSchema>;
 export type Receivable = z.infer<typeof titleSchema>;
 export type MatchInput = z.infer<typeof matchInputSchema>;
 
-export const brl = (minor: number, currency = "BRL") =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(
-    minor / 100,
-  );
-export const dateBR = (date: string | null) =>
-  date ? date.slice(0, 10).split("-").reverse().join("/") : "Não informado";
-
 export function parseAllocation(value: string): number {
   if (!/^\d+(?:[,.]\d{0,2})?$/.test(value)) return NaN;
   const [whole, fraction = ""] = value.replace(",", ".").split(".");

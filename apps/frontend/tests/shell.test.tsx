@@ -1,29 +1,38 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
-import RootLayout, { metadata } from "@/app/layout";
+import RootLayout, { generateMetadata } from "@/app/layout";
+import { createTranslator } from "next-intl";
 import { register } from "@/instrumentation";
 import { registerOTel } from "@vercel/otel";
 import { Card, CardAction, CardFooter } from "@/components/ui/card";
+import messages from "../messages/pt-BR.json";
+
+vi.mock("next-intl/server", () => ({
+  getLocale: async () => "pt-BR",
+  getMessages: async () => messages,
+  getTranslations: async (namespace: "home") =>
+    createTranslator({ locale: "pt-BR", messages, namespace }),
+}));
 
 vi.mock("@vercel/otel", () => ({ registerOTel: vi.fn() }));
 
-it("provides the document language, page content and metadata", () => {
+it("provides the document language, page content and metadata", async () => {
   const document = new DOMParser().parseFromString(
     renderToStaticMarkup(
-      <RootLayout>
-        <main>Account overview</main>
-      </RootLayout>,
+      await RootLayout({ children: <main>Account overview</main> }),
     ),
     "text/html",
   );
 
-  expect(document.documentElement.lang).toBe("en");
+  expect(document.documentElement.lang).toBe("pt-BR");
   expect(document.body.querySelector("main")?.textContent).toBe(
     "Account overview",
   );
-  expect(metadata.title).toBe("Vantara");
-  expect(metadata.description).toBe("Vantara foundations");
+  expect(await generateMetadata()).toEqual({
+    title: "Vantara",
+    description: messages.home.description,
+  });
 });
 
 it("registers telemetry with the frontend service identity", () => {

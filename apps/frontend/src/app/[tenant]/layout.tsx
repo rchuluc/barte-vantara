@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 import type { CSSProperties } from "react";
 import { tenantBySlug, brandForeground } from "@/lib/tenants";
 import { WorkspaceProvider } from "@/components/workspace-provider";
@@ -23,7 +24,12 @@ export async function generateMetadata({
 
   if (!tenant) missingTenant();
 
-  return { title: tenant.name, description: `${tenant.name} workspace` };
+  const t = await getTranslations("login");
+
+  return {
+    title: tenant.name,
+    description: t("workspace", { name: tenant.name }),
+  };
 }
 
 export default async function TenantLayout({

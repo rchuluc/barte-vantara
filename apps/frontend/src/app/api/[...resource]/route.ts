@@ -4,6 +4,7 @@ import { tenantByHost } from "@/lib/tenants";
 import { backend } from "@/services/backend";
 import { importProxy } from "@/services/import-proxy";
 import { importAssistant } from "@/services/import-assistant";
+import { defaultLocale, isLocale, localeCookie } from "@/i18n/config";
 import { reconciliationProxy } from "@/services/reconciliation-proxy";
 import { destinationProxy } from "@/services/destination-proxy";
 import {
@@ -207,9 +208,11 @@ async function handle(request: NextRequest, context: Context) {
     if (path === "me" && method === "GET")
       return NextResponse.json(me, { headers: noStore });
     if (path === "imports/assistant" && method === "POST") {
+      const preference = request.cookies.get(localeCookie)?.value;
       const response = await importAssistant(body, me, request.signal, {
         token,
         tenantId: tenant.id,
+        locale: isLocale(preference) ? preference : defaultLocale,
       });
       return new NextResponse(response.body, {
         status: response.status,

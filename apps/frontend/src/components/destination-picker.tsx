@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { useMe } from "@/hooks/use-workspace";
 import {
@@ -64,20 +65,21 @@ function DestinationCombobox({
   disabled,
   options,
   loading,
-  label,
+  kind,
   create,
 }: PickerProps & {
   options: { id: string; label: string; disabled?: boolean }[];
   loading: boolean;
-  label: string;
+  kind: "unit" | "account";
   create?: () => void;
 }) {
+  const t = useTranslations("ui");
   const [open, setOpen] = useState(false);
   const listId = useId();
   const selected = value.map(
     (id) =>
       options.find((option) => option.id === id)?.label ??
-      "Unavailable selection",
+      t("unavailableSelection"),
   );
 
   return (
@@ -95,8 +97,9 @@ function DestinationCombobox({
         >
           <span className="truncate">
             {loading
-              ? "Loading…"
-              : selected.join(", ") || `Select ${label.toLowerCase()}`}
+              ? t("loading")
+              : selected.join(", ") ||
+                t(kind === "unit" ? "selectUnit" : "selectAccount")}
           </span>
           <ChevronsUpDown data-icon="inline-end" />
         </Button>
@@ -106,13 +109,13 @@ function DestinationCombobox({
         className="w-[var(--radix-popover-trigger-width)] p-0"
         align="start"
       >
-        <Command label={`Search ${label.toLowerCase()}`}>
+        <Command label={t(kind === "unit" ? "searchUnit" : "searchAccount")}>
           <CommandInput
-            aria-label={`Search ${label.toLowerCase()}`}
-            placeholder="Search…"
+            aria-label={t(kind === "unit" ? "searchUnit" : "searchAccount")}
+            placeholder={t("search")}
           />
           <CommandList aria-multiselectable={multiple || undefined}>
-            <CommandEmpty>No matches found.</CommandEmpty>
+            <CommandEmpty>{t("noMatches")}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
                 <CommandItem
@@ -142,7 +145,7 @@ function DestinationCombobox({
                       className="pointer-events-none"
                     />
                   ) : value.includes(option.id) ? (
-                    <Check aria-label="Selected" />
+                    <Check aria-label={t("selected")} />
                   ) : null}
                   {option.label}
                 </CommandItem>
@@ -159,7 +162,7 @@ function DestinationCombobox({
                   }}
                 >
                   <Plus />
-                  Create {label}
+                  {t(kind === "unit" ? "createUnit" : "createAccount")}
                 </CommandItem>
               </CommandGroup>
             )}
@@ -171,6 +174,7 @@ function DestinationCombobox({
 }
 
 export function BusinessUnitCombobox(props: PickerProps) {
+  const t = useTranslations("ui");
   const units = useUnits();
   const me = useMe();
   const [creating, setCreating] = useState(false);
@@ -179,13 +183,15 @@ export function BusinessUnitCombobox(props: PickerProps) {
     <>
       <DestinationCombobox
         {...props}
-        label="Business Unit"
+        kind="unit"
         loading={units.isPending}
         options={(units.data ?? [])
           .filter((unit) => unit.active || props.value.includes(unit.id))
           .map((unit) => ({
             id: unit.id,
-            label: unit.name + (unit.active ? "" : " (disabled)"),
+            label: unit.active
+              ? unit.name
+              : t("disabledLabel", { name: unit.name }),
             disabled: !unit.active,
           }))}
         create={
@@ -227,6 +233,7 @@ export function BankAccountCombobox({
   currency?: string;
   requireAllUnits?: boolean;
 }) {
+  const t = useTranslations("ui");
   const accounts = useBankAccounts();
   const units = useUnits();
   const me = useMe();
@@ -250,11 +257,13 @@ export function BankAccountCombobox({
     <>
       <DestinationCombobox
         {...props}
-        label="Bank Account"
+        kind="account"
         loading={accounts.isPending || units.isPending}
         options={available.map((account) => ({
           id: account.id,
-          label: accountLabel(account) + (account.active ? "" : " (disabled)"),
+          label: account.active
+            ? accountLabel(account)
+            : t("disabledLabel", { name: accountLabel(account) }),
           disabled: !account.active,
         }))}
         create={
@@ -305,6 +314,7 @@ export function BusinessUnitDialog({
   close: () => void;
   saved: (unit: BusinessUnit) => void;
 }) {
+  const t = useTranslations("ui");
   const save = useSaveDestination("business-units");
   const id = useId();
 
@@ -317,12 +327,8 @@ export function BusinessUnitDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            {unit ? "Update Business Unit" : "Create Business Unit"}
-          </DialogTitle>
-          <DialogDescription>
-            Manage a business unit in your workspace.
-          </DialogDescription>
+          <DialogTitle>{unit ? t("updateUnit") : t("createUnit")}</DialogTitle>
+          <DialogDescription>{t("unitDescription")}</DialogDescription>
         </DialogHeader>
         <form
           className="flex flex-col gap-6"
@@ -348,7 +354,7 @@ export function BusinessUnitDialog({
         >
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor={id}>Name</FieldLabel>
+              <FieldLabel htmlFor={id}>{t("name")}</FieldLabel>
               <Input
                 id={id}
                 name="name"
@@ -368,10 +374,10 @@ export function BusinessUnitDialog({
               disabled={save.isPending}
               onClick={close}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button disabled={save.isPending}>
-              {save.isPending ? "Saving…" : "Save business unit"}
+              {save.isPending ? t("saving") : t("saveUnit")}
             </Button>
           </div>
         </form>
@@ -393,6 +399,7 @@ export function BankAccountDialog({
   close: () => void;
   saved: (account: BankAccount) => void;
 }) {
+  const t = useTranslations("ui");
   const save = useSaveDestination("bank-accounts");
   const units = useUnits();
   const [selectedUnits, setSelectedUnits] = useState(
@@ -410,12 +417,9 @@ export function BankAccountDialog({
       <DialogContent className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {account ? "Update Bank Account" : "Create Bank Account"}
+            {account ? t("updateAccount") : t("createAccount")}
           </DialogTitle>
-          <DialogDescription>
-            Share one bank account across business units, with a single
-            currency.
-          </DialogDescription>
+          <DialogDescription>{t("accountDescription")}</DialogDescription>
         </DialogHeader>
         <form
           className="flex flex-col gap-6"
@@ -445,7 +449,9 @@ export function BankAccountDialog({
         >
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor={`${id}-unit`}>Business unit</FieldLabel>
+              <FieldLabel htmlFor={`${id}-unit`}>
+                {t("businessUnit")}
+              </FieldLabel>
               <BusinessUnitCombobox
                 id={`${id}-unit`}
                 multiple
@@ -455,7 +461,7 @@ export function BankAccountDialog({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor={`${id}-bank`}>Bank code</FieldLabel>
+              <FieldLabel htmlFor={`${id}-bank`}>{t("bankCode")}</FieldLabel>
               <Input
                 id={`${id}-bank`}
                 name="bankCode"
@@ -468,7 +474,7 @@ export function BankAccountDialog({
             </Field>
             <Field>
               <FieldLabel htmlFor={`${id}-reference`}>
-                Account reference
+                {t("accountReference")}
               </FieldLabel>
               <Input
                 id={`${id}-reference`}
@@ -481,7 +487,9 @@ export function BankAccountDialog({
               />
             </Field>
             <Field>
-              <FieldLabel htmlFor={`${id}-currency`}>Currency</FieldLabel>
+              <FieldLabel htmlFor={`${id}-currency`}>
+                {t("currency")}
+              </FieldLabel>
               <NativeSelect
                 id={`${id}-currency`}
                 name="currency"
@@ -495,10 +503,7 @@ export function BankAccountDialog({
                 )}
               </NativeSelect>
               {account && (
-                <FieldDescription>
-                  Currency is fixed. Removing a business unit stops new imports;
-                  historical records retain their original access restrictions.
-                </FieldDescription>
+                <FieldDescription>{t("currencyHint")}</FieldDescription>
               )}
             </Field>
           </FieldGroup>
@@ -511,10 +516,10 @@ export function BankAccountDialog({
               disabled={save.isPending}
               onClick={close}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button disabled={save.isPending || !selectedUnits.length}>
-              {save.isPending ? "Saving…" : "Save bank account"}
+              {save.isPending ? t("saving") : t("saveAccount")}
             </Button>
           </div>
         </form>

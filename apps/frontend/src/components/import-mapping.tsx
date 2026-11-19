@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { useImportAction } from "@/hooks/use-imports";
 import {
   BusinessUnitCombobox,
@@ -22,6 +23,8 @@ import {
 import { RequestError } from "@/components/request-feedback";
 
 export function ImportMappingForm({ job }: { job: ImportJob }) {
+  const t = useTranslations("imports");
+  const c = useTranslations("ui");
   const action = useImportAction(job.id);
   const [columns, setColumns] = useState<Record<string, string>>(
     job.suggestedColumns,
@@ -75,17 +78,18 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
       }}
     >
       <div>
-        <h2 className="text-xl font-semibold">Review column mapping</h2>
+        <h2 className="text-xl font-semibold">{t("mappingTitle")}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Match your source columns to financial fields. Required fields are
-          marked with *.
+          {t("mappingDescription")}
         </p>
       </div>
       <FieldGroup className="grid gap-4 sm:grid-cols-2">
         {job.targetFields.map((field) => (
           <Field key={field}>
             <FieldLabel htmlFor={`map-${field}`}>
-              {field.replaceAll("_", " ")}
+              {t.has(`fields.${field}`)
+                ? t(`fields.${field}`)
+                : field.replaceAll("_", " ")}
               {required.includes(field) ? " *" : ""}
             </FieldLabel>
             <NativeSelect
@@ -97,7 +101,7 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
                 setColumns({ ...columns, [field]: event.target.value })
               }
             >
-              <NativeSelectOption value="">Not mapped</NativeSelectOption>
+              <NativeSelectOption value="">{t("notMapped")}</NativeSelectOption>
               {job.headers.map((header) => (
                 <NativeSelectOption key={header} value={header}>
                   {header}
@@ -107,11 +111,11 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
           </Field>
         ))}
       </FieldGroup>
-      <h2 className="text-xl font-semibold">Destination & formatting</h2>
+      <h2 className="text-xl font-semibold">{t("destinationFormatting")}</h2>
       <FieldGroup className="grid gap-4 sm:grid-cols-2">
         {!multiUnit && (
           <Field>
-            <FieldLabel htmlFor="destination">Business unit *</FieldLabel>
+            <FieldLabel htmlFor="destination">{c("businessUnit")} *</FieldLabel>
             <BusinessUnitCombobox
               id="destination"
               multiple={sharedStatement}
@@ -125,24 +129,25 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
             />
             <FieldDescription>
               {sharedStatement
-                ? "Select one or more units. Each movement is imported once and shares a single balance."
-                : "Only units visible to your account are listed."}
+                ? t("sharedStatementHint")
+                : t("visibleUnitsHint")}
             </FieldDescription>
           </Field>
         )}
         {automaticUnits && (
           <p className="text-sm text-muted-foreground">
-            Protheus unit names are matched automatically. New units are
-            registered if your permissions allow it.
+            {t("automaticUnitsHint")}
           </p>
         )}
         {multiUnit && !automaticUnits && (
           <Field>
-            <FieldLabel htmlFor="unit-names">Source unit names *</FieldLabel>
+            <FieldLabel htmlFor="unit-names">
+              {t("sourceUnitNames")} *
+            </FieldLabel>
             <Input
               id="unit-names"
               required
-              placeholder="Head office, Branch"
+              placeholder={t("unitNamesPlaceholder")}
               disabled={action.isPending}
               onChange={(event) =>
                 setUnitMap(
@@ -154,10 +159,7 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
                 )
               }
             />
-            <FieldDescription>
-              Enter every distinct value from the mapped unit column, separated
-              by commas.
-            </FieldDescription>
+            <FieldDescription>{t("unitNamesHint")}</FieldDescription>
           </Field>
         )}
         {multiUnit &&
@@ -165,7 +167,7 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
           Object.keys(unitMap).map((name, index) => (
             <Field key={name}>
               <FieldLabel htmlFor={`unit-${index}`}>
-                Destination for {name} *
+                {t("destinationFor", { name })} *
               </FieldLabel>
               <BusinessUnitCombobox
                 id={`unit-${index}`}
@@ -180,7 +182,7 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
           ))}
         {job.dataset_kind === "bank" && (
           <Field>
-            <FieldLabel htmlFor="bank-account">Bank account *</FieldLabel>
+            <FieldLabel htmlFor="bank-account">{t("bankAccount")} *</FieldLabel>
             <BankAccountCombobox
               id="bank-account"
               requireAllUnits
@@ -192,14 +194,11 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
                 action.isPending || (!multiUnit && !destinationSelected)
               }
             />
-            <FieldDescription>
-              Select an active account linked to every selected unit, in the
-              selected currency.
-            </FieldDescription>
+            <FieldDescription>{t("bankAccountHint")}</FieldDescription>
           </Field>
         )}
         <Field>
-          <FieldLabel htmlFor="date-format">Date format</FieldLabel>
+          <FieldLabel htmlFor="date-format">{t("dateFormat")}</FieldLabel>
           <NativeSelect
             id="date-format"
             value={dateFormat}
@@ -209,15 +208,15 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
             }
           >
             <NativeSelectOption value="uuuu-MM-dd">
-              YYYY-MM-DD
+              {t("isoDate")}
             </NativeSelectOption>
             <NativeSelectOption value="dd/MM/uuuu">
-              DD/MM/YYYY
+              {t("dayFirstDate")}
             </NativeSelectOption>
           </NativeSelect>
         </Field>
         <Field>
-          <FieldLabel htmlFor="decimal">Decimal separator</FieldLabel>
+          <FieldLabel htmlFor="decimal">{t("decimalSeparator")}</FieldLabel>
           <NativeSelect
             id="decimal"
             value={decimal}
@@ -226,12 +225,16 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
               setDecimal(event.target.value as ImportMapping["decimal"])
             }
           >
-            <NativeSelectOption value=".">Period (1234.56)</NativeSelectOption>
-            <NativeSelectOption value=",">Comma (1234,56)</NativeSelectOption>
+            <NativeSelectOption value=".">
+              {t("decimalPeriod")}
+            </NativeSelectOption>
+            <NativeSelectOption value=",">
+              {t("decimalComma")}
+            </NativeSelectOption>
           </NativeSelect>
         </Field>
         <Field>
-          <FieldLabel htmlFor="currency">Currency</FieldLabel>
+          <FieldLabel htmlFor="currency">{c("currency")}</FieldLabel>
           <NativeSelect
             id="currency"
             value={currency}
@@ -248,10 +251,7 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
         </Field>
       </FieldGroup>
       {action.error && <RequestError error={action.error} />}
-      <p className="text-sm text-muted-foreground">
-        Confirming locks the mapping. You can correct individual rejected rows
-        after processing.
-      </p>
+      <p className="text-sm text-muted-foreground">{t("confirmHint")}</p>
       <Button
         className="self-start"
         disabled={
@@ -264,7 +264,7 @@ export function ImportMappingForm({ job }: { job: ImportJob }) {
           (job.dataset_kind === "bank" && !accountId)
         }
       >
-        {action.isPending ? "Confirming…" : "Confirm and import"}
+        {action.isPending ? t("confirming") : t("confirmAndImport")}
       </Button>
     </form>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useFormatter, useTranslations } from "next-intl";
 import { ArrowLeft } from "lucide-react";
 import {
   useImport,
@@ -8,7 +9,6 @@ import {
   useProcessImport,
   useLeaveImport,
 } from "@/hooks/use-imports";
-import { datasetLabels } from "@/lib/import-contracts";
 import { ApiError } from "@/lib/contracts";
 import { ImportMappingForm } from "@/components/import-mapping";
 import { ImportRows } from "@/components/import-rows";
@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/dialog";
 
 export function ImportDetail({ id }: { id: string }) {
+  const t = useTranslations("imports");
+  const format = useFormatter();
   const query = useImport(id);
   const action = useImportAction(id);
   const job = query.data;
@@ -38,14 +40,10 @@ export function ImportDetail({ id }: { id: string }) {
   if (query.error instanceof ApiError && query.error.status === 404) {
     return (
       <Alert className="import-workspace">
-        <AlertTitle>Import unavailable</AlertTitle>
+        <AlertTitle>{t("unavailable")}</AlertTitle>
         <AlertDescription>
-          <p>
-            This import could not be found. If you refreshed before confirming,
-            your preview was discarded. Return to imports and select your file
-            again.
-          </p>
-          <Button onClick={departure.leave}>Return to imports</Button>
+          <p>{t("unavailableDescription")}</p>
+          <Button onClick={departure.leave}>{t("returnToImports")}</Button>
         </AlertDescription>
       </Alert>
     );
@@ -61,31 +59,31 @@ export function ImportDetail({ id }: { id: string }) {
             disabled={departure.busy}
           >
             <ArrowLeft data-icon="inline-start" />
-            All imports
+            {t("allImports")}
           </Button>
         </DialogTrigger>
         <DialogContent className="import-workspace">
           <DialogHeader>
             <DialogTitle>
               {departure.unconfirmed
-                ? "Discard this preview?"
-                : "Leave this import?"}
+                ? t("discardQuestion")
+                : t("leaveQuestion")}
             </DialogTitle>
             <DialogDescription>
               {departure.unconfirmed
-                ? "Leaving discards this preview. Your file and mapping won't be saved."
-                : "Confirmed imports remain saved. If processing is unfinished, it resumes when you return to this import."}
+                ? t("discardDescription")
+                : t("leaveDescription")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setLeaving(false)}>
-              Stay here
+              {t("stay")}
             </Button>
             <Button
               variant={departure.unconfirmed ? "destructive" : "default"}
               onClick={departure.leave}
             >
-              {departure.unconfirmed ? "Discard preview" : "Back to imports"}
+              {departure.unconfirmed ? t("discard") : t("backToImports")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -104,8 +102,8 @@ export function ImportDetail({ id }: { id: string }) {
           <header className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-sm text-muted-foreground">
-                {datasetLabels[job.dataset_kind]} ·{" "}
-                {job.platform ?? "Detecting format"}
+                {t(`datasets.${job.dataset_kind}`)} ·{" "}
+                {job.platform ?? t("detectingFormat")}
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight break-all">
                 {job.filename}
@@ -114,14 +112,14 @@ export function ImportDetail({ id }: { id: string }) {
             <Badge
               variant={job.state === "failed" ? "destructive" : "secondary"}
             >
-              {job.state}
+              {t(`states.${job.state}`)}
             </Badge>
           </header>
           <div className="grid gap-4 sm:grid-cols-3">
             {[
-              ["Source records", job.total],
-              ["Accepted", job.processed - job.rejected],
-              ["Needs correction", job.rejected],
+              [t("sourceRecords"), job.total],
+              [t("accepted"), job.processed - job.rejected],
+              [t("needsCorrection"), job.rejected],
             ].map(([label, value]) => (
               <Card key={label}>
                 <CardHeader>
@@ -129,7 +127,7 @@ export function ImportDetail({ id }: { id: string }) {
                 </CardHeader>
                 <CardContent>
                   <p className="text-3xl font-semibold tabular-nums">
-                    {Number(value).toLocaleString()}
+                    {format.number(Number(value))}
                   </p>
                 </CardContent>
               </Card>
@@ -138,18 +136,15 @@ export function ImportDetail({ id }: { id: string }) {
           {action.error && <RequestError error={action.error} />}
           {(job.state === "failed" || job.state === "uploading") && (
             <Alert>
-              <AlertTitle>File preparation needs attention</AlertTitle>
+              <AlertTitle>{t("preparationAttention")}</AlertTitle>
               <AlertDescription>
-                <p>
-                  Retry reading the saved original. If the upload never
-                  finished, return to imports and upload the file again.
-                </p>
+                <p>{t("preparationDescription")}</p>
                 <Button
                   variant="outline"
                   disabled={action.isPending}
                   onClick={() => action.mutate({ action: "prepare" })}
                 >
-                  {action.isPending ? "Preparing…" : "Retry preparation"}
+                  {action.isPending ? t("preparing") : t("retryPreparation")}
                 </Button>
               </AlertDescription>
             </Alert>
@@ -158,22 +153,20 @@ export function ImportDetail({ id }: { id: string }) {
             <ImportMappingForm key={job.id} job={job} />
           )}
           {(job.state === "processing" || job.state === "completed") && (
-            <section
-              className="flex flex-col gap-3"
-              aria-label="Processing progress"
-            >
+            <section className="flex flex-col gap-3" aria-label={t("progress")}>
               <p role="status">
-                {job.processed.toLocaleString()} of {job.total.toLocaleString()}{" "}
-                records processed ·{" "}
-                {job.total
-                  ? Math.round((job.processed / job.total) * 100)
-                  : job.state === "completed"
-                    ? 100
-                    : 0}
-                %
+                {t("processingProgress", {
+                  processed: job.processed,
+                  total: job.total,
+                  percent: job.total
+                    ? Math.round((job.processed / job.total) * 100)
+                    : job.state === "completed"
+                      ? 100
+                      : 0,
+                })}
               </p>
               <progress
-                aria-label="Records processed"
+                aria-label={t("recordsProcessed")}
                 value={
                   job.state === "completed" && job.total === 0
                     ? 1
@@ -190,8 +183,7 @@ export function ImportDetail({ id }: { id: string }) {
               ) : (
                 job.state === "processing" && (
                   <p className="text-sm text-muted-foreground">
-                    Importing automatically. Keep this page open; if you leave,
-                    processing resumes when you return.
+                    {t("automaticProcessing")}
                   </p>
                 )
               )}
@@ -199,11 +191,11 @@ export function ImportDetail({ id }: { id: string }) {
           )}
           {job.state === "completed" && (
             <Alert>
-              <AlertTitle>Processing complete</AlertTitle>
+              <AlertTitle>{t("complete")}</AlertTitle>
               <AlertDescription>
                 {job.rejected
-                  ? `${job.rejected} records need correction. Save your changes below; corrected records are imported automatically.`
-                  : "All records were accepted. Your imported data is ready."}
+                  ? t("correctionsNeeded", { count: job.rejected })
+                  : t("allAccepted")}
               </AlertDescription>
             </Alert>
           )}

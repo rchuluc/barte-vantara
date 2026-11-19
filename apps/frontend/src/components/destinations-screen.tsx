@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 import { ArrowUpDown, Plus } from "lucide-react";
 import { useMe } from "@/hooks/use-workspace";
 import {
@@ -33,6 +34,7 @@ import {
 import { Loading, RequestError } from "@/components/request-feedback";
 
 export function DestinationsScreen({ kind }: { kind: DestinationKind }) {
+  const t = useTranslations("ui");
   const me = useMe();
 
   if (me.error) return <RequestError error={me.error} />;
@@ -40,10 +42,8 @@ export function DestinationsScreen({ kind }: { kind: DestinationKind }) {
   if (!me.data.permissions.includes("configure"))
     return (
       <Alert variant="destructive">
-        <AlertTitle>Administrator access required</AlertTitle>
-        <AlertDescription>
-          Contact your workspace administrator to manage destinations.
-        </AlertDescription>
+        <AlertTitle>{t("adminRequired")}</AlertTitle>
+        <AlertDescription>{t("cannotManageDestinations")}</AlertDescription>
       </Alert>
     );
 
@@ -100,13 +100,15 @@ function DestinationTable({
   records: (BusinessUnit | BankAccount)[];
   units?: BusinessUnit[];
 }) {
+  const t = useTranslations("ui");
+  const locale = useLocale();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [descending, setDescending] = useState(false);
   const [editor, setEditor] = useState<
     BusinessUnit | BankAccount | "new" | null
   >(null);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<{ key: string; name?: string }>();
   const save = useSaveDestination(kind);
   const unit = kind === "business-units";
   const label = (record: BusinessUnit | BankAccount) =>
@@ -115,17 +117,19 @@ function DestinationTable({
     record.unit_ids
       .map(
         (id) =>
-          units.find((unit) => unit.id === id)?.name ??
-          "Unavailable business unit",
+          units.find((unit) => unit.id === id)?.name ?? t("unavailableUnit"),
       )
       .join(", ");
   const filtered = records
     .filter((record) =>
-      `${label(record)} ${"unit_ids" in record ? unitName(record) : ""} ${record.active ? "active" : "disabled"}`
+      `${label(record)} ${"unit_ids" in record ? unitName(record) : ""} ${record.active ? t("active") : t("disabled")}`
         .toLowerCase()
         .includes(search.toLowerCase()),
     )
-    .sort((a, b) => label(a).localeCompare(label(b)) * (descending ? -1 : 1));
+    .sort(
+      (a, b) =>
+        label(a).localeCompare(label(b), locale) * (descending ? -1 : 1),
+    );
   const currentPage = Math.min(
     page,
     Math.max(0, Math.ceil(filtered.length / 20) - 1),
@@ -133,7 +137,7 @@ function DestinationTable({
   const close = () => setEditor(null);
   const saved = () => {
     close();
-    setNotice("Changes saved.");
+    setNotice({ key: "changesSaved" });
   };
 
   return (
@@ -141,25 +145,27 @@ function DestinationTable({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="mb-2 text-sm text-muted-foreground">
-            Workspace / Administration
+            {t("administration")}
           </p>
           <h1 className="text-3xl font-semibold tracking-tight">
-            {unit ? "Business units" : "Bank accounts"}
+            {unit ? t("businessUnits") : t("bankAccounts")}
           </h1>
           <p className="mt-3 text-muted-foreground">
-            Create, update or disable records. Historical data is retained.
+            {t("destinationsDescription")}
           </p>
         </div>
         <Button onClick={() => setEditor("new")}>
           <Plus data-icon="inline-start" />
-          Create {unit ? "Business Unit" : "Bank Account"}
+          {t(unit ? "createUnit" : "createAccount")}
         </Button>
       </header>
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p role="status">{t(notice.key, { name: notice.name ?? "" })}</p>
+      )}
       {save.error && <RequestError error={save.error} />}
       <Input
-        aria-label="Search records"
-        placeholder="Search records…"
+        aria-label={t("searchRecords")}
+        placeholder={t("searchRecordsPlaceholder")}
         value={search}
         onChange={(event) => {
           setSearch(event.target.value);
@@ -175,13 +181,13 @@ function DestinationTable({
                   variant="ghost"
                   onClick={() => setDescending(!descending)}
                 >
-                  {unit ? "Name" : "Account"}
+                  {unit ? t("name") : t("account")}
                   <ArrowUpDown data-icon="inline-end" />
                 </Button>
               </TableHead>
-              {!unit && <TableHead>Business units</TableHead>}
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              {!unit && <TableHead>{t("businessUnits")}</TableHead>}
+              <TableHead>{t("status")}</TableHead>
+              <TableHead className="text-right">{t("actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -195,7 +201,7 @@ function DestinationTable({
                   )}
                   <TableCell>
                     <Badge variant={record.active ? "secondary" : "outline"}>
-                      {record.active ? "Active" : "Disabled"}
+                      {record.active ? t("active") : t("disabled")}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -207,7 +213,7 @@ function DestinationTable({
                         }
                         onClick={() => setEditor(record)}
                       >
-                        Update
+                        {t("update")}
                       </Button>
                       <Button
                         variant="ghost"
@@ -231,14 +237,15 @@ function DestinationTable({
                             },
                             {
                               onSuccess: () =>
-                                setNotice(
-                                  `${label(record)} disabled. Historical data retained.`,
-                                ),
+                                setNotice({
+                                  key: "recordDisabled",
+                                  name: label(record),
+                                }),
                             },
                           )
                         }
                       >
-                        Disable
+                        {t("disable")}
                       </Button>
                     </div>
                   </TableCell>
@@ -247,7 +254,7 @@ function DestinationTable({
             {!filtered.length && (
               <TableRow>
                 <TableCell colSpan={unit ? 3 : 4} className="h-24 text-center">
-                  No records found.
+                  {t("noRecords")}
                 </TableCell>
               </TableRow>
             )}
@@ -255,7 +262,7 @@ function DestinationTable({
         </Table>
       </div>
       <nav
-        aria-label="Record pages"
+        aria-label={t("recordPages")}
         className="flex items-center justify-between gap-3"
       >
         <Button
@@ -263,17 +270,17 @@ function DestinationTable({
           disabled={!currentPage}
           onClick={() => setPage(currentPage - 1)}
         >
-          Previous
+          {t("previous")}
         </Button>
         <span className="text-sm text-muted-foreground">
-          Page {currentPage + 1} · {filtered.length} records
+          {t("pageRecords", { page: currentPage + 1, count: filtered.length })}
         </span>
         <Button
           variant="outline"
           disabled={(currentPage + 1) * 20 >= filtered.length}
           onClick={() => setPage(currentPage + 1)}
         >
-          Next
+          {t("next")}
         </Button>
       </nav>
       {editor &&

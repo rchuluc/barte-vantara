@@ -103,6 +103,20 @@ function agentModel(messageNumber = 1, duplicate = false) {
   return model;
 }
 
+it.each(["pt-BR", "en", "es", "invalid"])(
+  "uses the validated %s interface language in the assistant prompt",
+  async (locale) => {
+    const model = agentModel();
+    const result = await call(undefined, {
+      cookie: `vantara-vantara=token; vantara-locale=${locale}`,
+    });
+    await result.text();
+    expect(JSON.stringify(model.doStreamCalls[0].prompt)).toContain(
+      `selected interface language: ${locale === "invalid" ? "pt-BR" : locale}`,
+    );
+  },
+);
+
 beforeEach(() => {
   vi.stubEnv("OPENROUTER_MODEL", "test/model");
   vi.stubEnv("OPENROUTER_API_KEY", "private-key");

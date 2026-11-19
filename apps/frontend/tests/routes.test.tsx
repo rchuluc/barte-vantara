@@ -5,6 +5,13 @@ import TenantHome from "@/app/[tenant]/page";
 import { useTenant } from "@/components/workspace-provider";
 import { other } from "./fixtures";
 import { tenantBackend } from "./setup";
+import { createTranslator } from "next-intl";
+import messages from "../messages/en.json";
+
+vi.mock("next-intl/server", () => ({
+  getTranslations: async (namespace: "login") =>
+    createTranslator({ locale: "en", messages, namespace }),
+}));
 
 vi.mock("next/navigation", () => ({
   notFound: () => {

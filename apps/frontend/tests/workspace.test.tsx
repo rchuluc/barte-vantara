@@ -1,10 +1,4 @@
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "./render";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { WorkspaceProvider, useTenant } from "@/components/workspace-provider";
 import { WorkspaceShell } from "@/components/workspace-shell";
@@ -277,8 +271,8 @@ it("shows dashboard account details and full profile scopes", async () => {
     await screen.findByRole("heading", { name: "My profile" }),
   ).toBeInTheDocument();
   expect(screen.getByText("Active")).toBeInTheDocument();
-  expect(screen.getByText(`${other.id}: approve`)).toBeInTheDocument();
-  expect(screen.getByText("pay")).toBeInTheDocument();
+  expect(screen.getByText(`${other.id}: Approve`)).toBeInTheDocument();
+  expect(screen.getByText("Pay")).toBeInTheDocument();
 });
 
 it("shows empty scope messages and absent display name", async () => {
@@ -354,8 +348,8 @@ it("creates a user with role and scope validation", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Select at least one role",
   );
-  expect(screen.getByLabelText("ap")).toHaveFocus();
-  fireEvent.click(screen.getByLabelText("ap"));
+  expect(screen.getByLabelText("Accounts payable")).toHaveFocus();
+  fireEvent.click(screen.getByLabelText("Accounts payable"));
   await waitFor(() =>
     expect(screen.getByLabelText("Business units")).toBeEnabled(),
   );
@@ -396,7 +390,7 @@ it("edits a user, retains scopes, and does not expose password or email editing"
     await screen.findByRole("button", { name: `Edit ${other.email}` }),
   );
   expect(await screen.findByLabelText("Display name")).toHaveValue("Taylor");
-  expect(screen.getByLabelText("ap")).toBeChecked();
+  expect(screen.getByLabelText("Accounts payable")).toBeChecked();
   expect(screen.queryByLabelText("Initial password")).not.toBeInTheDocument();
   fill("Display name", "Updated");
   fireEvent.click(screen.getByRole("button", { name: "Save user" }));
@@ -444,7 +438,7 @@ it("retries unavailable role catalogs", async () => {
   fetchMock.mockResolvedValueOnce(new Response(null, { status: 503 }));
   mount(<UserEditor close={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
-  expect(await screen.findByLabelText("ap")).toBeInTheDocument();
+  expect(await screen.findByLabelText("Accounts payable")).toBeInTheDocument();
 });
 
 it("confirms deactivation, supports cancellation, and prevents self-administration", async () => {

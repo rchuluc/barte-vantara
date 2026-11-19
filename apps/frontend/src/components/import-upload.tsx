@@ -1,13 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Upload } from "lucide-react";
 import { usePreviewImport } from "@/hooks/use-imports";
-import {
-  MAX_IMPORT_BYTES,
-  datasetLabels,
-  type Dataset,
-} from "@/lib/import-contracts";
+import { MAX_IMPORT_BYTES, type Dataset } from "@/lib/import-contracts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,6 +35,8 @@ export function ImportUpload({
   kinds: Dataset[];
   onUploaded: (id: string) => void;
 }) {
+  const t = useTranslations("imports");
+  const c = useTranslations("ui");
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<Dataset>(kinds[0]);
   const [file, setFile] = useState<File>();
@@ -60,16 +59,13 @@ export function ImportUpload({
       <DialogTrigger asChild>
         <Button disabled={!kinds.length}>
           <Upload data-icon="inline-start" />
-          New import
+          {t("newImport")}
         </Button>
       </DialogTrigger>
       <DialogContent className="import-workspace max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Import financial data</DialogTitle>
-          <DialogDescription>
-            Preview your file and review its columns. Nothing is saved until you
-            choose Confirm and import.
-          </DialogDescription>
+          <DialogTitle>{t("uploadTitle")}</DialogTitle>
+          <DialogDescription>{t("uploadDescription")}</DialogDescription>
         </DialogHeader>
         <form
           className="flex flex-col gap-6"
@@ -90,7 +86,7 @@ export function ImportUpload({
         >
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="dataset">Dataset</FieldLabel>
+              <FieldLabel htmlFor="dataset">{t("dataset")}</FieldLabel>
               <NativeSelect
                 id="dataset"
                 value={kind}
@@ -102,17 +98,14 @@ export function ImportUpload({
               >
                 {kinds.map((value) => (
                   <NativeSelectOption key={value} value={value}>
-                    {datasetLabels[value]}
+                    {t(`datasets.${value}`)}
                   </NativeSelectOption>
                 ))}
               </NativeSelect>
-              <FieldDescription>
-                Protheus and Omie are detected as receivables; Itaú as bank
-                statements. This selection applies to other file formats.
-              </FieldDescription>
+              <FieldDescription>{t("datasetHint")}</FieldDescription>
             </Field>
             <Field data-invalid={!!error}>
-              <FieldLabel htmlFor="import-file">Source file</FieldLabel>
+              <FieldLabel htmlFor="import-file">{t("sourceFile")}</FieldLabel>
               <Input
                 id="import-file"
                 type="file"
@@ -134,24 +127,21 @@ export function ImportUpload({
                     selected.size === 0 ||
                     selected.size > MAX_IMPORT_BYTES
                   ) {
-                    setError(
-                      "Choose a nonempty CSV or XLSX file up to 100 MiB, with a filename of 200 characters or fewer.",
-                    );
+                    setError("fileValidation");
                     return;
                   }
                   setFile(selected);
                 }}
               />
               <FieldDescription id="file-help">
-                CSV or XLSX · up to 100 MiB. The first row must contain unique
-                column names.
+                {t("fileHint")}
               </FieldDescription>
               <p
                 id="file-error"
                 role={error ? "alert" : undefined}
                 className="text-sm text-destructive"
               >
-                {error}
+                {error && t(error)}
               </p>
             </Field>
           </FieldGroup>
@@ -163,10 +153,10 @@ export function ImportUpload({
               disabled={upload.isPending}
               onClick={() => setOpen(false)}
             >
-              Cancel
+              {c("cancel")}
             </Button>
             <Button disabled={!file || upload.isPending}>
-              {upload.isPending ? "Reading file…" : "Preview file"}
+              {upload.isPending ? t("readingFile") : t("previewFile")}
             </Button>
           </DialogFooter>
         </form>

@@ -1,11 +1,14 @@
 import {
   fireEvent,
-  render,
+  render as renderLocalized,
   screen,
   waitFor,
   within,
-} from "@testing-library/react";
+} from "./render";
 import { beforeEach, expect, it, vi } from "vitest";
+import en from "../messages/en.json";
+import es from "../messages/es.json";
+import ptBR from "../messages/pt-BR.json";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import ReconciliationPage from "@/app/[tenant]/(workspace)/reconciliation/page";
 import {
@@ -24,6 +27,10 @@ const id = (n: number) =>
 const fetchMock = vi.fn<typeof fetch>();
 const refresh = vi.fn(async () => {});
 let data: Reconciliation;
+
+function render(ui: React.ReactNode) {
+  return renderLocalized(ui, { locale: "pt-BR" });
+}
 
 function title(
   n: number,
@@ -147,6 +154,58 @@ function mount() {
     </WorkspaceProvider>,
   );
 }
+
+it.each(["en", "es", "pt-BR"] as const)(
+  "formats reconciliation details in %s and preserves original evidence",
+  async (locale) => {
+    const m = { en, es, "pt-BR": ptBR }[locale].reconciliation;
+    fetchMock.mockResolvedValue(
+      Response.json({
+        normalized: {
+          direction: "credit",
+          status: "posted",
+          observation_state: "expected",
+          amount_minor: 123456,
+          booking_date: "2026-07-20",
+          party_name: null,
+          custom_field: "Untouched source",
+          currency: "BRL",
+        },
+        source: {
+          locator: "record:5",
+          raw_text: "Original evidence",
+          object_ref: "source.csv",
+          source_version: "v1",
+          ingestion_id: null,
+          filename: "source.csv",
+        },
+        history: [],
+      }),
+    );
+    renderLocalized(
+      <WorkspaceProvider tenant={{ slug: "vantara", name: "Vantara" }}>
+        <ReconciliationWorkbench data={data} refresh={refresh} />
+      </WorkspaceProvider>,
+      { locale },
+    );
+    fireEvent.mouseDown(
+      screen.getByRole("tab", { name: m.statuses.suggested }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: m.detailsFor.replace("{name}", "TED DOCE PONTO"),
+      }),
+    );
+    expect(await screen.findByText("Original evidence")).toBeInTheDocument();
+    expect(screen.getByText(m.values.credit)).toBeInTheDocument();
+    expect(screen.getByText(m.values.posted)).toBeInTheDocument();
+    expect(screen.getByText("Untouched source")).toBeInTheDocument();
+    expect(
+      screen.getByText(new Intl.NumberFormat(locale).format(123456)),
+    ).toBeInTheDocument();
+  },
+);
 function click(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
 }

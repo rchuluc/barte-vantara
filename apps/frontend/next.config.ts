@@ -1,3 +1,6 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
+
 const config: NextConfig = { output: "standalone", poweredByHeader: false };
-export default config;
+
+export default createNextIntlPlugin()(config);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useFormatter, useTranslations } from "next-intl";
 import { useChat } from "@ai-sdk/react";
 import {
   DefaultChatTransport,
@@ -27,9 +28,11 @@ import {
 import { unitsSchema } from "@/lib/import-contracts";
 
 const transport = new DefaultChatTransport({ api: "/api/imports/assistant" });
-const suggestions = ["What can I upload?", "Help me prepare an import"];
 
 export function ImportAssistant({ onImported }: { onImported?: () => void }) {
+  const t = useTranslations("assistant");
+  const format = useFormatter();
+  const suggestions = [t("uploadSuggestion"), t("prepareSuggestion")];
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [fileError, setFileError] = useState("");
@@ -102,9 +105,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
   function send(text: string) {
     if (!text.trim() || busy || reading || full || pendingApproval) return;
     if (text.length > 64000) {
-      setFileError(
-        "Your message and attachment are too long. Keep them under 64,000 characters combined.",
-      );
+      setFileError("tooLong");
       return;
     }
     followScroll.current = true;
@@ -121,10 +122,10 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
       <Dialog.Trigger asChild>
         <Button
           className="fixed right-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-40 h-14 gap-3 rounded-full px-5 shadow-lg transition-shadow hover:shadow-xl sm:right-6"
-          aria-label="Import assistant"
+          aria-label={t("label")}
         >
           <Sparkles className="size-5" aria-hidden="true" />
-          <span>Ask Vantara</span>
+          <span>{t("ask")}</span>
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
@@ -145,7 +146,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                 Vantara
               </Dialog.Title>
               <Dialog.Description className="mt-0.5 text-xs text-muted-foreground">
-                Your import assistant
+                {t("description")}
               </Dialog.Description>
             </div>
             {messages.length > 0 && (
@@ -154,8 +155,8 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                 variant="ghost"
                 size="icon"
                 className="size-11"
-                aria-label="New chat"
-                title="New chat"
+                aria-label={t("newChat")}
+                title={t("newChat")}
                 disabled={busy || reading}
                 onClick={() => {
                   setMessages([]);
@@ -171,7 +172,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                 variant="ghost"
                 size="icon"
                 className="size-11"
-                aria-label="Close assistant"
+                aria-label={t("close")}
               >
                 <X className="size-4" />
               </Button>
@@ -181,7 +182,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
           <div
             ref={scroll}
             role="log"
-            aria-label="Import conversation"
+            aria-label={t("conversation")}
             aria-live="polite"
             aria-busy={busy}
             onScroll={(event) => {
@@ -200,13 +201,10 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                   <Sparkles className="size-6" aria-hidden="true" />
                 </div>
                 <h2 className="max-w-64 text-2xl leading-tight font-semibold tracking-tight">
-                  What are we
-                  <br />
-                  importing today?
+                  {t("welcome")}
                 </h2>
                 <p className="mt-3 max-w-80 text-sm leading-6 text-muted-foreground">
-                  Send me an invoice email or a conversation. I’ll pull out the
-                  details and help you work through what’s missing.
+                  {t("welcomeDescription")}
                 </p>
                 <div className="mt-7 flex flex-col items-start gap-2">
                   {suggestions.map((text) => (
@@ -251,7 +249,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                     }
                   >
                     <span className="sr-only">
-                      {message.role === "user" ? "You" : "Vantara"}
+                      {message.role === "user" ? t("you") : "Vantara"}
                     </span>
                     {message.parts.map((part, index) => {
                       if (part.type === "tool-createImport") {
@@ -272,29 +270,44 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                               <>
                                 <p className="font-medium">
                                   {part.state === "output-available"
-                                    ? "Import result"
-                                    : `Import ${proposal.data.rows.length} payable record(s)?`}
+                                    ? t("result")
+                                    : t("proposal", {
+                                        count: proposal.data.rows.length,
+                                      })}
                                 </p>
                                 <p>
-                                  Destination:{" "}
-                                  {units.find(
-                                    (unit) => unit.id === proposal.data.unitId,
-                                  )?.name ?? proposal.data.unitId}
+                                  {t("destination", {
+                                    name:
+                                      units.find(
+                                        (unit) =>
+                                          unit.id === proposal.data.unitId,
+                                      )?.name ?? proposal.data.unitId,
+                                  })}
                                 </p>
                                 <ul className="space-y-2">
                                   {proposal.data.rows.map((row, rowIndex) => (
                                     <li key={rowIndex} className="break-words">
                                       {row.party_name} · {row.document_ref}
                                       <br />
-                                      {proposal.data.currency} {row.amount} ·
-                                      Due {row.due_on}
+                                      {format.number(Number(row.amount), {
+                                        style: "currency",
+                                        currency: proposal.data.currency,
+                                      })}{" "}
+                                      ·{" "}
+                                      {t("due", {
+                                        date: format.dateTime(
+                                          new Date(`${row.due_on}T00:00:00Z`),
+                                          {
+                                            dateStyle: "short",
+                                            timeZone: "UTC",
+                                          },
+                                        ),
+                                      })}
                                     </li>
                                   ))}
                                 </ul>
                                 <p className="text-xs text-muted-foreground">
-                                  Creates open payables and saves the original
-                                  source. No payment or invoice approval is
-                                  performed.
+                                  {t("proposalHint")}
                                 </p>
                               </>
                             )}
@@ -310,7 +323,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                                     })
                                   }
                                 >
-                                  Confirm import
+                                  {t("confirm")}
                                 </Button>
                                 <Button
                                   type="button"
@@ -323,26 +336,23 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                                     })
                                   }
                                 >
-                                  Cancel import
+                                  {t("cancel")}
                                 </Button>
                               </div>
                             )}
                             {part.state === "approval-responded" && (
                               <p role="status">
                                 {part.approval.approved
-                                  ? "Import confirmed. Saving…"
-                                  : "Import cancelled."}
+                                  ? t("confirmedSaving")
+                                  : t("cancelled")}
                               </p>
                             )}
                             {part.state === "output-denied" && (
-                              <p>Import cancelled. Nothing was saved.</p>
+                              <p>{t("denied")}</p>
                             )}
                             {part.state === "output-error" && (
                               <>
-                                <p role="alert">
-                                  The import could not be completed. Retry this
-                                  import to safely resume.
-                                </p>
+                                <p role="alert">{t("importError")}</p>
                                 {part.approval && (
                                   <Button
                                     type="button"
@@ -370,7 +380,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                                       )
                                     }
                                   >
-                                    Retry import
+                                    {t("retryImport")}
                                   </Button>
                                 )}
                               </>
@@ -379,17 +389,21 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                               <div role="status">
                                 {part.approval?.approved && (
                                   <p className="mb-1 font-medium">
-                                    Confirmed by you
+                                    {t("confirmedByYou")}
                                   </p>
                                 )}
                                 <p>
-                                  {result.data.processed - result.data.rejected}{" "}
-                                  imported · {result.data.rejected} rejected.{" "}
+                                  {t("counts", {
+                                    imported:
+                                      result.data.processed -
+                                      result.data.rejected,
+                                    rejected: result.data.rejected,
+                                  })}{" "}
                                   <a
                                     className="underline"
                                     href={`/imports/${result.data.id}`}
                                   >
-                                    Review import
+                                    {t("reviewImport")}
                                   </a>
                                 </p>
                               </div>
@@ -418,7 +432,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                     aria-hidden="true"
                     className="size-4 animate-spin text-primary motion-reduce:animate-none"
                   />
-                  {status === "submitted" ? "Thinking…" : "Working on it…"}
+                  {status === "submitted" ? t("thinking") : t("working")}
                 </div>
               )}
             </div>
@@ -438,7 +452,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
             {error && (
               <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-destructive/5 p-3">
                 <p role="alert" className="text-sm text-destructive">
-                  I couldn’t complete that. Please try again.
+                  {t("messageError")}
                 </p>
                 <Button
                   type="button"
@@ -447,13 +461,13 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                     void regenerate();
                   }}
                 >
-                  Retry message
+                  {t("retryMessage")}
                 </Button>
               </div>
             )}
             {full && (
               <p role="status" className="mb-3 text-sm text-muted-foreground">
-                This conversation is full. Start a new chat to continue.
+                {t("full")}
               </p>
             )}
             <div className="assistant-composer rounded-2xl border border-input/60 bg-background p-2 transition-shadow focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/15">
@@ -474,7 +488,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                     variant="ghost"
                     size="icon"
                     className="size-11"
-                    aria-label="Remove attachment"
+                    aria-label={t("removeAttachment")}
                     disabled={busy || reading}
                     onClick={() => setAttachment(undefined)}
                   >
@@ -483,7 +497,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                 </div>
               )}
               <label htmlFor="assistant-input" className="sr-only">
-                Message Vantara
+                {t("messageLabel")}
               </label>
               <textarea
                 ref={composer}
@@ -492,7 +506,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                 maxLength={64000}
                 disabled={busy || reading || full || pendingApproval}
                 rows={2}
-                placeholder="Ask anything, or paste your source…"
+                placeholder={t("placeholder")}
                 className="max-h-36 min-h-16 w-full resize-none border-0 bg-transparent px-3 py-2 text-base leading-6 outline-none focus-visible:outline-none disabled:opacity-50 sm:text-sm"
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
@@ -512,15 +526,15 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                   variant="ghost"
                   size="icon"
                   className="size-11"
-                  aria-label="Attach text file"
-                  title="Attach TXT, EML or MD · up to 64 KB"
+                  aria-label={t("attach")}
+                  title={t("attachHint")}
                   disabled={busy || reading || full}
                   onClick={() => fileInput.current?.click()}
                 >
                   <Paperclip className="size-5" />
                 </Button>
                 <span className="flex-1 text-xs text-muted-foreground">
-                  {reading ? "Reading file…" : "TXT, EML, MD · 64 KB"}
+                  {reading ? t("reading") : t("fileTypes")}
                 </span>
                 {busy ? (
                   <Button
@@ -528,7 +542,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                     size="icon"
                     variant="secondary"
                     className="size-11 rounded-xl"
-                    aria-label="Stop response"
+                    aria-label={t("stop")}
                     onClick={() => {
                       void stop();
                     }}
@@ -539,7 +553,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                   <Button
                     size="icon"
                     className="size-11 rounded-xl"
-                    aria-label="Send message"
+                    aria-label={t("send")}
                     disabled={
                       (!input.trim() && !attachment) ||
                       reading ||
@@ -554,7 +568,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
             </div>
             <input
               ref={fileInput}
-              aria-label="Source file"
+              aria-label={t("sourceFile")}
               type="file"
               accept=".txt,.eml,.md"
               className="hidden"
@@ -569,9 +583,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                   !file.size ||
                   file.size > 64000
                 ) {
-                  setFileError(
-                    "Choose a nonempty TXT, EML or MD file up to 64 KB.",
-                  );
+                  setFileError("invalidFile");
                   return;
                 }
                 setReading(true);
@@ -583,9 +595,7 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
                     throw new Error("Invalid text");
                   setAttachment({ name: file.name, text });
                 } catch {
-                  setFileError(
-                    "This file could not be read. Choose UTF-8 text or paste the content instead.",
-                  );
+                  setFileError("unreadableFile");
                 } finally {
                   setReading(false);
                 }
@@ -593,11 +603,11 @@ export function ImportAssistant({ onImported }: { onImported?: () => void }) {
             />
             {fileError && (
               <p role="alert" className="mt-2 text-sm text-destructive">
-                {fileError}
+                {t(fileError)}
               </p>
             )}
             <p className="mt-2.5 text-center text-xs text-muted-foreground">
-              Review first · Imports are saved only after you confirm.
+              {t("footer")}
             </p>
           </form>
         </Dialog.Content>

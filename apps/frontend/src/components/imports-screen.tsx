@@ -1,16 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useFormatter, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FileSpreadsheet, RefreshCw } from "lucide-react";
 import { useImports } from "@/hooks/use-imports";
 import { useMe } from "@/hooks/use-workspace";
-import {
-  datasetSchema,
-  datasetLabels,
-  importPermission,
-} from "@/lib/import-contracts";
+import { datasetSchema, importPermission } from "@/lib/import-contracts";
 import { ImportUpload } from "@/components/import-upload";
 import { ImportAssistant } from "@/components/import-assistant";
 import { Button } from "@/components/ui/button";
@@ -32,6 +29,9 @@ import {
 import { Loading, RequestError } from "@/components/request-feedback";
 
 export function ImportsScreen() {
+  const t = useTranslations("imports");
+  const c = useTranslations("ui");
+  const format = useFormatter();
   const [offset, setOffset] = useState(0);
   const query = useImports(offset);
   const me = useMe();
@@ -45,14 +45,13 @@ export function ImportsScreen() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Data workspace
+            {t("workspace")}
           </p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-            Data imports
+            {t("title")}
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            Bring your financial data together. Upload a file, match its
-            columns, and review every record.
+            {t("description")}
           </p>
         </div>
         {kinds.length > 0 && (
@@ -64,21 +63,9 @@ export function ImportsScreen() {
       </header>
       <div className="grid gap-4 sm:grid-cols-3">
         {[
-          [
-            "01",
-            "Upload your file",
-            "CSV and XLSX, including Omie, Protheus, and Itaú formats.",
-          ],
-          [
-            "02",
-            "Review the mapping",
-            "Check columns, business units, and number formats before importing.",
-          ],
-          [
-            "03",
-            "Resolve exceptions",
-            "Track accepted records and correct individual rejected rows.",
-          ],
+          ["01", t("uploadStep"), t("uploadStepDescription")],
+          ["02", t("mappingStep"), t("mappingStepDescription")],
+          ["03", t("exceptionsStep"), t("exceptionsStepDescription")],
         ].map(([step, title, description]) => (
           <div
             key={step}
@@ -93,10 +80,8 @@ export function ImportsScreen() {
       <Card>
         <CardHeader className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardTitle>Import history</CardTitle>
-            <CardDescription>
-              Files visible to your account and business-unit scope.
-            </CardDescription>
+            <CardTitle>{t("history")}</CardTitle>
+            <CardDescription>{t("historyDescription")}</CardDescription>
           </div>
           <Button
             variant="outline"
@@ -106,7 +91,7 @@ export function ImportsScreen() {
             }}
           >
             <RefreshCw data-icon="inline-start" />
-            Refresh
+            {t("refresh")}
           </Button>
         </CardHeader>
         <CardContent>
@@ -126,12 +111,10 @@ export function ImportsScreen() {
                   <FileSpreadsheet aria-hidden="true" />
                 </EmptyMedia>
                 <EmptyTitle>
-                  {offset ? "No more imports" : "Your first import starts here"}
+                  {offset ? t("noMore") : t("firstImport")}
                 </EmptyTitle>
                 <EmptyDescription>
-                  {kinds.length
-                    ? "Choose New import to upload a CSV or spreadsheet. You can review the mapping before processing."
-                    : "No imports are visible yet. Ask your administrator for import permissions if you need to upload a file."}
+                  {kinds.length ? t("emptyCanImport") : t("emptyNoPermission")}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -150,30 +133,37 @@ export function ImportsScreen() {
                       {job.filename}
                     </Link>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {datasetLabels[job.dataset_kind]} ·{" "}
-                      {job.platform ?? "Detecting"} ·{" "}
-                      {new Date(job.created_at).toLocaleDateString()}
+                      {t(`datasets.${job.dataset_kind}`)} ·{" "}
+                      {job.platform ?? t("detecting")} ·{" "}
+                      {format.dateTime(new Date(job.created_at), {
+                        dateStyle: "short",
+                        timeZone: "UTC",
+                      })}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <p className="text-sm tabular-nums text-muted-foreground">
-                      {job.processed.toLocaleString()} /{" "}
-                      {job.total.toLocaleString()} processed
-                      {job.rejected > 0 ? ` · ${job.rejected} rejected` : ""}
+                      {t("processed", {
+                        processed: job.processed,
+                        total: job.total,
+                      })}
+                      {job.rejected > 0
+                        ? t("rejectedSuffix", { count: job.rejected })
+                        : ""}
                     </p>
                     <Badge
                       variant={
                         job.state === "failed" ? "destructive" : "secondary"
                       }
                     >
-                      {job.state}
+                      {t(`states.${job.state}`)}
                     </Badge>
                     <Button asChild variant="outline">
                       <Link
                         href={`/imports/${job.id}`}
-                        aria-label={`Review ${job.filename}`}
+                        aria-label={t("reviewFile", { name: job.filename })}
                       >
-                        Review
+                        {t("review")}
                       </Link>
                     </Button>
                   </div>
@@ -189,17 +179,17 @@ export function ImportsScreen() {
           disabled={offset === 0 || query.isFetching}
           onClick={() => setOffset(Math.max(0, offset - 20))}
         >
-          Previous imports
+          {t("previousImports")}
         </Button>
         <span className="text-sm text-muted-foreground">
-          Page {offset / 20 + 1}
+          {c("page", { page: offset / 20 + 1 })}
         </span>
         <Button
           variant="outline"
           disabled={!query.data || query.data.length < 20 || query.isFetching}
           onClick={() => setOffset(offset + 20)}
         >
-          Next imports
+          {t("nextImports")}
         </Button>
       </div>
       {kinds.includes("payable") && (

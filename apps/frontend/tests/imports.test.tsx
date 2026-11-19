@@ -1,12 +1,5 @@
 import { StrictMode, useState } from "react";
-import {
-  act,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "./render";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { WorkspaceProvider } from "@/components/workspace-provider";
 import { ImportDetail } from "@/components/import-detail";
@@ -236,7 +229,7 @@ it("maps a file, processes records and reports completion", async () => {
   mount(await ImportPage({ params: Promise.resolve({ id: importId }) }));
   expect(await screen.findByText("Review column mapping")).toBeInTheDocument();
   await selectDestination("Business unit *", "Head office");
-  fill("amount *", "Amount");
+  fill("Amount *", "Amount");
   fill("Date format", "dd/MM/uuuu");
   fill("Decimal separator", ",");
   fill("Currency", "USD");
@@ -313,14 +306,14 @@ it("supports bank destination and custom multi-unit mappings", async () => {
     suggestedColumns: {},
   };
   mount(<ImportMappingForm job={job} />);
-  fill("unit", "Customer");
+  fill("Business unit", "Customer");
   fill("Source unit names *", "HQ");
   await selectDestination("Destination for HQ *", "Head office");
   await selectDestination("Bank account *", "341 · 123 · BRL");
-  fill("amount *", "Amount");
-  fill("booking date *", "Due date");
-  fill("description *", "Customer");
-  fill("direction *", "Customer");
+  fill("Amount *", "Amount");
+  fill("Booking date *", "Due date");
+  fill("Description *", "Customer");
+  fill("Direction *", "Customer");
   click("Confirm and import");
   await waitFor(() =>
     expect(
@@ -355,8 +348,10 @@ it("uses Protheus unit matching and permits unmapping optional fields", async ()
       fetchMock.mock.calls.some(([url]) => String(url).endsWith("confirm")),
     ).toBe(true),
   );
-  await waitFor(() => expect(screen.getByLabelText("unit")).toBeEnabled());
-  fill("unit", "");
+  await waitFor(() =>
+    expect(screen.getByLabelText("Business unit")).toBeEnabled(),
+  );
+  fill("Business unit", "");
   expect(screen.getByLabelText("Business unit *")).toBeInTheDocument();
 });
 
@@ -657,8 +652,8 @@ it("uses the detected Itau bank dataset for mapping and persistence", async () =
   mount(<PreviewFlow />);
   await openPreview();
   expect(screen.getByText(/Bank statements/)).toBeInTheDocument();
-  expect(screen.getByLabelText("booking date *")).toHaveValue("data");
-  expect(screen.queryByLabelText("due on *")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Booking date *")).toHaveValue("data");
+  expect(screen.queryByLabelText("Due date *")).not.toBeInTheDocument();
   await selectDestination("Business unit *", "Head office");
   fireEvent.click(screen.getByRole("option", { name: "Branch" }));
   expect(screen.getByRole("option", { name: "Head office" })).toHaveAttribute(

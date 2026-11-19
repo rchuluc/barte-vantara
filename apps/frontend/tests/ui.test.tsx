@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen } from "./render";
 import Link from "next/link";
 import { expect, it } from "vitest";
 import {

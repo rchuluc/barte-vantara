@@ -1,12 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useMe } from "@/hooks/use-workspace";
 import { UserEditor } from "@/components/user-editor";
 import { Loading, RequestError } from "@/components/request-feedback";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
 export function NewUserScreen() {
+  const t = useTranslations("ui");
   const me = useMe();
   const router = useRouter();
 
@@ -15,8 +17,8 @@ export function NewUserScreen() {
   if (!me.data.permissions.includes("configure"))
     return (
       <Alert variant="destructive">
-        <AlertTitle>Administrator access required</AlertTitle>
-        <AlertDescription>Your account cannot manage users.</AlertDescription>
+        <AlertTitle>{t("adminRequired")}</AlertTitle>
+        <AlertDescription>{t("cannotManageUsers")}</AlertDescription>
       </Alert>
     );
 
@@ -24,9 +26,11 @@ export function NewUserScreen() {
     <section className="flex flex-col gap-8">
       <header>
         <p className="mb-2 text-sm text-muted-foreground">
-          Workspace / User management
+          {t("userBreadcrumb")}
         </p>
-        <h1 className="text-3xl font-semibold tracking-tight">New user</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">
+          {t("newUser")}
+        </h1>
       </header>
       <UserEditor close={() => router.push("/users")} />
     </section>

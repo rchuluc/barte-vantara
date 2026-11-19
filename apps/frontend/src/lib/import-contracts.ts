@@ -2,11 +2,6 @@ import { z } from "zod";
 
 export const MAX_IMPORT_BYTES = 100 * 1024 * 1024;
 export const datasetSchema = z.enum(["receivable", "payable", "bank"]);
-export const datasetLabels = {
-  receivable: "Receivables",
-  payable: "Payables",
-  bank: "Bank statements",
-};
 export const importSummarySchema = z.object({
   id: z.uuid(),
   filename: z.string(),

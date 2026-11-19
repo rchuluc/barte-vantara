@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useFormatter, useTranslations } from "next-intl";
+import { useServerMessage } from "@/i18n/server-messages";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTenant } from "@/components/workspace-provider";
 import { request } from "@/services/workspace";
@@ -8,8 +10,6 @@ import {
   reconciliationSchema,
   reconciliationDetailSchema,
   matchResultSchema,
-  brl,
-  dateBR,
   parseAllocation,
   overlaps,
   type Reconciliation,
@@ -71,20 +71,14 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 
-const statuses = {
-  pending: "Pendentes",
-  suggested: "Sugeridas",
-  partial: "Parciais",
-  confirmed: "Confirmadas",
-  exceptions: "Exceções",
-};
 const searchText = (value: unknown) =>
   String(value ?? "")
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
-    .toLocaleLowerCase("pt-BR");
+    .toLowerCase();
 
 export function ReconciliationScreen() {
+  const t = useTranslations("reconciliation");
   const { slug } = useTenant();
   const client = useQueryClient();
   const query = useQuery({
@@ -94,7 +88,7 @@ export function ReconciliationScreen() {
 
   if (query.isPending)
     return (
-      <div aria-label="Carregando conciliação" className="flex flex-col gap-4">
+      <div aria-label={t("loading")} className="flex flex-col gap-4">
         <Skeleton className="h-12 w-72" />
         <Skeleton className="h-96 w-full" />
       </div>
@@ -102,11 +96,11 @@ export function ReconciliationScreen() {
   if (query.error)
     return (
       <Alert variant="destructive">
-        <AlertTitle>Não foi possível carregar a conciliação</AlertTitle>
+        <AlertTitle>{t("loadError")}</AlertTitle>
         <AlertDescription>
-          <p>Verifique sua conexão e suas permissões.</p>
+          <p>{t("checkConnection")}</p>
           <Button variant="outline" onClick={() => void query.refetch()}>
-            Tentar novamente
+            {t("retry")}
           </Button>
         </AlertDescription>
       </Alert>
@@ -129,6 +123,31 @@ export function ReconciliationWorkbench({
   data: Reconciliation;
   refresh: () => Promise<void>;
 }) {
+  const t = useTranslations("reconciliation");
+  const format = useFormatter();
+  const translateMessage = useServerMessage();
+  const brl = (minor: number, currency = "BRL") =>
+    format.number(minor / 100, { style: "currency", currency });
+  const dateBR = (date: string | null) =>
+    date
+      ? format.dateTime(new Date(`${date.slice(0, 10)}T00:00:00Z`), {
+          dateStyle: "short",
+          timeZone: "UTC",
+        })
+      : t("notProvided");
+  const allocationValue = (minor: number) =>
+    format.number(minor / 100, {
+      useGrouping: false,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  const statuses = {
+    pending: t("statuses.pending"),
+    suggested: t("statuses.suggested"),
+    partial: t("statuses.partial"),
+    confirmed: t("statuses.confirmed"),
+    exceptions: t("statuses.exceptions"),
+  };
   const [activeId, setActiveId] = useState<string | null>(null);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
@@ -231,10 +250,7 @@ export function ReconciliationWorkbench({
         ? Object.fromEntries(
             data.allocations
               .filter((a) => a.decision_id === decision.id)
-              .map((a) => [
-                a.title_id,
-                (a.amount_minor / 100).toFixed(2).replace(".", ","),
-              ]),
+              .map((a) => [a.title_id, allocationValue(a.amount_minor)]),
           )
         : {},
     );
@@ -310,15 +326,13 @@ export function ReconciliationWorkbench({
       await refresh();
       setNotice(
         action === "draft"
-          ? "Rascunho salvo. Um revisor independente poderá confirmar."
+          ? "draftSaved"
           : action === "pending"
-            ? "Crédito mantido pendente."
-            : "Sugestão rejeitada. Nenhum saldo foi alterado.",
+            ? "keptPending"
+            : "suggestionRejected",
       );
     } catch {
-      setError(
-        "Não foi possível salvar. Verifique suas permissões e atualize os saldos antes de tentar novamente.",
-      );
+      setError("saveError");
     } finally {
       setBusy(false);
     }
@@ -340,14 +354,10 @@ export function ReconciliationWorkbench({
       setConfirm(false);
       await refresh();
       setNotice(
-        decision === "confirmed"
-          ? "Conciliação confirmada e registrada no histórico desta aplicação."
-          : "Proposta rejeitada. Crédito pendente.",
+        decision === "confirmed" ? "confirmedNotice" : "rejectedNotice",
       );
     } catch {
-      setError(
-        "A revisão não foi concluída. Os saldos podem ter mudado ou você não tem permissão sobre todas as unidades. Atualize e revise novamente.",
-      );
+      setError("reviewError");
       setConfirm(false);
     } finally {
       setBusy(false);
@@ -401,22 +411,19 @@ export function ReconciliationWorkbench({
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex flex-col gap-2">
             <p className="text-xs uppercase tracking-widest text-muted-foreground">
-              Recebíveis · bancada de trabalho
+              {t("workspace")}
             </p>
             <h1 className="text-3xl font-semibold tracking-tight">
-              Conciliação bancária
+              {t("title")}
             </h1>
-            <p className="text-sm text-muted-foreground">
-              Do movimento bancário ao título. Confira a origem, distribua o
-              valor e revise a decisão.
-            </p>
+            <p className="text-sm text-muted-foreground">{t("description")}</p>
           </div>
           <Button
             variant="outline"
             disabled={busy}
             onClick={() => void refresh()}
           >
-            Atualizar saldos
+            {t("refreshBalances")}
           </Button>
         </header>
         <Tabs value={tab} onValueChange={setTab}>
@@ -429,13 +436,13 @@ export function ReconciliationWorkbench({
           </TabsList>
           <TabsContent value={tab} className="flex flex-col gap-6">
             <nav
-              aria-label="Etapas da conciliação"
+              aria-label={t("steps")}
               className="flex flex-wrap gap-2 lg:hidden"
             >
               {[
-                "Selecionar crédito",
-                "Selecionar títulos",
-                "Revisar alocação",
+                t("selectCredit"),
+                t("selectTitles"),
+                t("reviewAllocation"),
               ].map((label, index) => (
                 <Button
                   key={label}
@@ -458,32 +465,34 @@ export function ReconciliationWorkbench({
                 <div className="flex flex-col gap-4 p-4">
                   <div className="flex items-center justify-between gap-2">
                     <h2 id="bank-heading" className="text-lg font-semibold">
-                      1. Movimentos bancários
+                      {t("bankMovements")}
                     </h2>
-                    <Badge variant="outline">{banks.length} lançamentos</Badge>
+                    <Badge variant="outline">
+                      {t("entryCount", { count: banks.length })}
+                    </Badge>
                   </div>
                   <Field>
                     <FieldLabel htmlFor="bank-search">
-                      Buscar crédito
+                      {t("searchCredit")}
                     </FieldLabel>
                     <Input
                       id="bank-search"
                       value={bankSearch}
                       onChange={(event) => setBankSearch(event.target.value)}
-                      placeholder="Histórico, documento, data ou valor"
+                      placeholder={t("bankSearchPlaceholder")}
                     />
                   </Field>
                   <Select value={bankView} onValueChange={setBankView}>
-                    <SelectTrigger aria-label="Visão bancária">
+                    <SelectTrigger aria-label={t("bankView")}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
                         <SelectItem value="credits">
-                          Movimentos para conciliar
+                          {t("movementsToReconcile")}
                         </SelectItem>
                         <SelectItem value="entries">
-                          Lançamentos bancários · inclui débitos
+                          {t("allEntries")}
                         </SelectItem>
                       </SelectGroup>
                     </SelectContent>
@@ -493,13 +502,13 @@ export function ReconciliationWorkbench({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Crédito / histórico</TableHead>
-                        <TableHead>Documento</TableHead>
+                        <TableHead>{t("creditHistory")}</TableHead>
+                        <TableHead>{t("document")}</TableHead>
                         <TableHead className="text-right">
-                          Valor / situação
+                          {t("amountStatus")}
                         </TableHead>
                         <TableHead>
-                          <span className="sr-only">Detalhes</span>
+                          <span className="sr-only">{t("details")}</span>
                         </TableHead>
                       </TableRow>
                     </TableHeader>
@@ -532,7 +541,7 @@ export function ReconciliationWorkbench({
                             </div>
                           </TableCell>
                           <TableCell>
-                            {bank.external_ref || "Sem referência"}
+                            {bank.external_ref || t("noReference")}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex flex-col items-end gap-2">
@@ -547,7 +556,9 @@ export function ReconciliationWorkbench({
                                 }
                               >
                                 {bank.direction === "debit"
-                                  ? `Débito · ${statuses[status(bank)]}`
+                                  ? t("debitStatus", {
+                                      status: statuses[status(bank)],
+                                    })
                                   : statuses[status(bank)]}
                               </Badge>
                             </div>
@@ -559,9 +570,11 @@ export function ReconciliationWorkbench({
                               onClick={() =>
                                 setDetail({ kind: "banks", id: bank.id })
                               }
-                              aria-label={`Detalhes de ${bank.description}`}
+                              aria-label={t("detailsFor", {
+                                name: bank.description,
+                              })}
                             >
-                              Ver origem
+                              {t("viewSource")}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -569,9 +582,7 @@ export function ReconciliationWorkbench({
                     </TableBody>
                   </Table>
                 </div>
-                {!banks.length && (
-                  <NoRows text="Nenhum lançamento neste filtro. Tente outra aba ou busca." />
-                )}
+                {!banks.length && <NoRows text={t("noEntries")} />}
               </section>
               <section
                 aria-labelledby="titles-heading"
@@ -584,29 +595,29 @@ export function ReconciliationWorkbench({
                   <div className="flex items-center justify-between gap-2">
                     <h2 id="titles-heading" className="text-lg font-semibold">
                       {active?.direction === "debit"
-                        ? "2. Títulos a pagar"
-                        : "2. Títulos a receber"}
+                        ? t("payableTitles")
+                        : t("receivableTitles")}
                     </h2>
                     <Badge variant="outline">Protheus + Omie</Badge>
                   </div>
                   <Field>
                     <FieldLabel htmlFor="title-search">
-                      Buscar título
+                      {t("searchTitle")}
                     </FieldLabel>
                     <Input
                       id="title-search"
                       value={titleSearch}
                       onChange={(event) => setTitleSearch(event.target.value)}
-                      placeholder="Cliente, CNPJ ou referência"
+                      placeholder={t("titleSearchPlaceholder")}
                     />
                   </Field>
                   <Select value={source} onValueChange={setSource}>
-                    <SelectTrigger aria-label="Sistema de origem">
+                    <SelectTrigger aria-label={t("sourceSystem")}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectGroup>
-                        <SelectItem value="all">Todos os sistemas</SelectItem>
+                        <SelectItem value="all">{t("allSystems")}</SelectItem>
                         <SelectItem value="protheus">Protheus</SelectItem>
                         <SelectItem value="omie">Omie</SelectItem>
                       </SelectGroup>
@@ -616,30 +627,23 @@ export function ReconciliationWorkbench({
                     active.unallocated_minor > 0 &&
                     !candidates.length && (
                       <Alert>
-                        <AlertTitle>Identidade não comprovada</AlertTitle>
+                        <AlertTitle>{t("identityUnverified")}</AlertTitle>
                         <AlertDescription>
-                          Não encontramos referência, CNPJ ou nome
-                          correspondente. Um valor igual, sozinho, não permite
-                          confirmar. Mantenha o depósito pendente.
+                          {t("identityDescription")}
                         </AlertDescription>
                       </Alert>
                     )}
                   {overlap && (
                     <Alert>
-                      <AlertTitle>
-                        Possível sobreposição entre fontes
-                      </AlertTitle>
+                      <AlertTitle>{t("sourceOverlap")}</AlertTitle>
                       <AlertDescription>
-                        Há títulos de Protheus e Omie com identidade e valor
-                        coincidentes. São registros distintos: verifique a
-                        origem antes de alocar.
+                        {t("sourceOverlapDescription")}
                       </AlertDescription>
                     </Alert>
                   )}
                   {!active && (
                     <p className="text-sm text-muted-foreground">
-                      Selecione um crédito à esquerda para distribuir o
-                      recebimento.
+                      {t("selectCreditHint")}
                     </p>
                   )}
                 </div>
@@ -648,14 +652,18 @@ export function ReconciliationWorkbench({
                     <TableHeader>
                       <TableRow>
                         <TableHead>
-                          <span className="sr-only">Selecionar</span>
+                          <span className="sr-only">{t("select")}</span>
                         </TableHead>
-                        <TableHead>Origem / cliente</TableHead>
-                        <TableHead>Documento / vencimento</TableHead>
+                        <TableHead>{t("sourceParty")}</TableHead>
+                        <TableHead>{t("documentDue")}</TableHead>
                         <TableHead className="text-right">
-                          Original / saldo
+                          {t("originalBalance")}
                         </TableHead>
-                        <TableHead>Alocar (R$)</TableHead>
+                        <TableHead>
+                          {t("allocateCurrency", {
+                            currency: active?.currency ?? "BRL",
+                          })}
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -680,14 +688,20 @@ export function ReconciliationWorkbench({
                           >
                             <TableCell>
                               <Checkbox
-                                aria-label={`Selecionar ${title.source_system} ${title.document_ref || title.party_name}`}
+                                aria-label={t("selectTitleLabel", {
+                                  source: title.source_system,
+                                  name:
+                                    title.document_ref ||
+                                    title.party_name ||
+                                    t("unknownParty"),
+                                })}
                                 checked={checked}
                                 disabled={disabled}
                                 onCheckedChange={(value) => {
                                   setAmounts((current) => {
                                     const next = { ...current };
                                     if (value)
-                                      next[title.id] = (
+                                      next[title.id] = allocationValue(
                                         Math.min(
                                           title.outstanding_minor,
                                           Math.max(
@@ -695,10 +709,8 @@ export function ReconciliationWorkbench({
                                             (active?.unallocated_minor ?? 0) -
                                               total,
                                           ),
-                                        ) / 100
-                                      )
-                                        .toFixed(2)
-                                        .replace(".", ",");
+                                        ),
+                                      );
                                     else delete next[title.id];
                                     return next;
                                   });
@@ -722,24 +734,28 @@ export function ReconciliationWorkbench({
                                     setDetail({ kind: "titles", id: title.id })
                                   }
                                 >
-                                  {title.party_name ||
-                                    "Cliente não identificado"}
+                                  {title.party_name || t("unknownParty")}
                                 </Button>
                                 <span className="text-xs text-muted-foreground">
-                                  CNPJ: {title.party_tax_id || "não informado"}
+                                  {t("taxId", {
+                                    value:
+                                      title.party_tax_id || t("notProvided"),
+                                  })}
                                 </span>
                                 {overlaps(title, data.titles) && (
                                   <Badge variant="outline">
-                                    Possível sobreposição
+                                    {t("overlap")}
                                   </Badge>
                                 )}
                                 {evidence && (
                                   <div className="flex flex-col gap-1 text-xs">
                                     <Badge variant="outline">
-                                      Sugestão · não confirmada
+                                      {t("unconfirmedSuggestion")}
                                     </Badge>
                                     {evidence.evidence.map((reason) => (
-                                      <span key={reason}>{reason}</span>
+                                      <span key={reason}>
+                                        {translateMessage(reason)}
+                                      </span>
                                     ))}
                                     <Button
                                       size="sm"
@@ -752,7 +768,7 @@ export function ReconciliationWorkbench({
                                         )
                                       }
                                     >
-                                      Rejeitar sugestão
+                                      {t("rejectSuggestion")}
                                     </Button>
                                   </div>
                                 )}
@@ -761,10 +777,10 @@ export function ReconciliationWorkbench({
                             <TableCell>
                               <div className="flex flex-col gap-1">
                                 <span>
-                                  {title.document_ref || "Sem documento"}
+                                  {title.document_ref || t("noDocument")}
                                 </span>
                                 <span className="text-xs text-muted-foreground">
-                                  {title.external_id || "Sem referência"}
+                                  {title.external_id || t("noReference")}
                                 </span>
                                 <span>{dateBR(title.due_on)}</span>
                               </div>
@@ -789,8 +805,12 @@ export function ReconciliationWorkbench({
                                     className="sr-only"
                                     htmlFor={`amount-${title.id}`}
                                   >
-                                    Alocar{" "}
-                                    {title.document_ref || title.party_name}
+                                    {t("allocateTitle", {
+                                      name:
+                                        title.document_ref ||
+                                        title.party_name ||
+                                        t("unknownParty"),
+                                    })}
                                   </FieldLabel>
                                   <Input
                                     id={`amount-${title.id}`}
@@ -825,12 +845,10 @@ export function ReconciliationWorkbench({
                     </TableBody>
                   </Table>
                 </div>
-                {!titles.length && (
-                  <NoRows text="Nenhum título encontrado. Ajuste a busca ou o sistema de origem." />
-                )}
+                {!titles.length && <NoRows text={t("noTitles")} />}
                 <div className="p-4 lg:hidden">
                   <Button disabled={!active} onClick={() => setStep(3)}>
-                    Revisar alocação
+                    {t("reviewAllocation")}
                   </Button>
                 </div>
               </section>
@@ -846,25 +864,27 @@ export function ReconciliationWorkbench({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <h2 id="allocation-heading" className="font-semibold">
-                      3. Resumo da alocação
+                      {t("allocationSummary")}
                     </h2>
                     <p className="max-w-lg text-sm text-muted-foreground">
                       {active
                         ? `${active.description} · ${brl(active.amount_minor, active.currency)}`
-                        : "Nenhum crédito selecionado"}
-                      {dirty && " · Alterações não salvas"}
+                        : t("noCreditSelected")}
+                      {dirty && t("unsavedSuffix")}
                     </p>
                   </div>
                   <dl className="flex flex-wrap gap-6 text-sm">
                     <div>
-                      <dt className="text-muted-foreground">Total alocado</dt>
+                      <dt className="text-muted-foreground">
+                        {t("totalAllocated")}
+                      </dt>
                       <dd className="text-xl font-semibold tabular-nums">
                         {brl(total, active?.currency)}
                       </dd>
                     </div>
                     <div>
                       <dt className="text-muted-foreground">
-                        Crédito não alocado
+                        {t("unallocatedCredit")}
                       </dt>
                       <dd className="text-xl font-semibold tabular-nums">
                         {brl(
@@ -884,9 +904,10 @@ export function ReconciliationWorkbench({
                           : row.title.source_system === "omie"
                             ? "Omie"
                             : row.title.source_system}{" "}
-                        · {row.title.document_ref} · alocar{" "}
-                        {brl(row.amount || 0, row.title.currency)} · saldo do
-                        título após alocação:{" "}
+                        · {row.title.document_ref} ·{" "}
+                        {t("allocationBalance", {
+                          amount: brl(row.amount || 0, row.title.currency),
+                        })}{" "}
                         <strong>
                           {brl(
                             row.title.outstanding_minor - (row.amount || 0),
@@ -899,32 +920,27 @@ export function ReconciliationWorkbench({
                 )}
                 {selected.length > 0 && !valid && (
                   <Alert variant="destructive">
-                    <AlertTitle>Revise os valores</AlertTitle>
-                    <AlertDescription>
-                      Use valores positivos com até duas casas decimais, sem
-                      exceder o saldo do crédito ou de cada título.
-                    </AlertDescription>
+                    <AlertTitle>{t("reviewAmounts")}</AlertTitle>
+                    <AlertDescription>{t("amountsHint")}</AlertDescription>
                   </Alert>
                 )}
-                {draft?.origin === "ai" && (
-                  <p>Proposta por agente · aguardando aprovação humana</p>
-                )}
+                {draft?.origin === "ai" && <p>{t("agentProposal")}</p>}
                 {draft && (
                   <p className="text-sm text-muted-foreground">
                     {draft.actor_id === data.actorId
-                      ? "Você propôs este rascunho. A confirmação exige outro revisor autorizado."
-                      : "Rascunho aguardando revisão independente."}
+                      ? t("ownDraft")
+                      : t("awaitingReview")}
                   </p>
                 )}
                 {error && (
                   <Alert variant="destructive">
-                    <AlertTitle>Operação não concluída</AlertTitle>
-                    <AlertDescription>{error}</AlertDescription>
+                    <AlertTitle>{t("operationIncomplete")}</AlertTitle>
+                    <AlertDescription>{t(error)}</AlertDescription>
                   </Alert>
                 )}
                 {notice && (
                   <p role="status" className="text-sm">
-                    {notice}
+                    {t(notice)}
                   </p>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
@@ -933,7 +949,7 @@ export function ReconciliationWorkbench({
                     disabled={!active?.can_propose || !valid || !dirty || busy}
                     onClick={() => void save("draft")}
                   >
-                    Salvar rascunho
+                    {t("saveDraft")}
                   </Button>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -942,21 +958,18 @@ export function ReconciliationWorkbench({
                           disabled={!canConfirm || busy}
                           onClick={() => setConfirm(true)}
                         >
-                          Confirmar conciliação
+                          {t("confirmReconciliation")}
                         </Button>
                       </span>
                     </TooltipTrigger>
-                    <TooltipContent>
-                      Salve as alocações; outro revisor autorizado deve
-                      verificar a identidade e confirmar.
-                    </TooltipContent>
+                    <TooltipContent>{t("reviewerHint")}</TooltipContent>
                   </Tooltip>
                   <Button
                     variant="ghost"
                     disabled={!active?.can_propose || busy}
                     onClick={() => void save("pending")}
                   >
-                    Deixar pendente
+                    {t("leavePending")}
                   </Button>
                   {draft &&
                     draft.actor_id !== data.actorId &&
@@ -966,11 +979,11 @@ export function ReconciliationWorkbench({
                         disabled={busy || dirty}
                         onClick={() => void review("rejected")}
                       >
-                        Rejeitar proposta
+                        {t("rejectProposal")}
                       </Button>
                     )}
                   <p className="text-xs text-muted-foreground">
-                    Registro local · nenhuma escrita no Itaú, Protheus ou Omie.
+                    {t("localRecord")}
                   </p>
                 </div>
               </div>
@@ -983,23 +996,20 @@ export function ReconciliationWorkbench({
             >
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Descartar alterações não salvas?
-                  </AlertDialogTitle>
+                  <AlertDialogTitle>{t("discardQuestion")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Trocar o crédito descartará as alocações em edição. Volte
-                    para salvar o rascunho antes de continuar.
+                    {t("discardDescription")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+                  <AlertDialogCancel>{t("keepEditing")}</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={() => {
                       if (switchTo) choose(switchTo);
                       setSwitchTo(null);
                     }}
                   >
-                    Descartar e trocar
+                    {t("discardAndSwitch")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1007,12 +1017,9 @@ export function ReconciliationWorkbench({
             <AlertDialog open={confirm} onOpenChange={setConfirm}>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Confirmar estas alocações?
-                  </AlertDialogTitle>
+                  <AlertDialogTitle>{t("confirmAllocations")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    A decisão será auditada nesta aplicação. Não haverá escrita
-                    nos sistemas de origem.
+                    {t("confirmDescription")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <p className="text-sm">
@@ -1022,7 +1029,7 @@ export function ReconciliationWorkbench({
                   {selected.map((row) => (
                     <li key={row.title.id}>
                       {row.title.source_system} · {row.title.document_ref}:{" "}
-                      {brl(row.amount, row.title.currency)}. Saldo:{" "}
+                      {brl(row.amount, row.title.currency)}. {t("balanceLabel")}{" "}
                       {brl(
                         row.title.outstanding_minor - row.amount,
                         row.title.currency,
@@ -1033,15 +1040,13 @@ export function ReconciliationWorkbench({
                 </ul>
                 {overlap && (
                   <Alert>
-                    <AlertTitle>Possível sobreposição</AlertTitle>
-                    <AlertDescription>
-                      Confira se os títulos representam obrigações distintas.
-                    </AlertDescription>
+                    <AlertTitle>{t("overlap")}</AlertTitle>
+                    <AlertDescription>{t("overlapHint")}</AlertDescription>
                   </Alert>
                 )}
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={busy}>
-                    Voltar à revisão
+                    {t("backToReview")}
                   </AlertDialogCancel>
                   <AlertDialogAction
                     disabled={busy || !canConfirm}
@@ -1050,7 +1055,7 @@ export function ReconciliationWorkbench({
                       void review("confirmed");
                     }}
                   >
-                    {busy ? "Registrando…" : "Confirmar e registrar"}
+                    {busy ? t("recording") : t("confirmAndRecord")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -1067,10 +1072,11 @@ export function ReconciliationWorkbench({
 }
 
 function NoRows({ text }: { text: string }) {
+  const t = useTranslations("reconciliation");
   return (
     <Empty>
       <EmptyHeader>
-        <EmptyTitle>Nenhum resultado</EmptyTitle>
+        <EmptyTitle>{t("noResults")}</EmptyTitle>
         <EmptyDescription>{text}</EmptyDescription>
       </EmptyHeader>
     </Empty>
@@ -1084,6 +1090,9 @@ function ReconciliationDetails({
   detail: { kind: "banks" | "titles"; id: string } | null;
   close: () => void;
 }) {
+  const t = useTranslations("reconciliation");
+  const translateMessage = useServerMessage();
+  const format = useFormatter();
   const { slug } = useTenant();
   const query = useQuery({
     queryKey: [slug, "reconciliation", "detail", detail?.kind, detail?.id],
@@ -1104,19 +1113,17 @@ function ReconciliationDetails({
     >
       <SheetContent className="overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle>Origem e histórico da decisão</SheetTitle>
-          <SheetDescription>
-            Consultar os detalhes preserva o crédito e as alocações em edição.
-          </SheetDescription>
+          <SheetTitle>{t("sourceHistory")}</SheetTitle>
+          <SheetDescription>{t("detailsDescription")}</SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-6 p-4">
           {query.isPending && <Skeleton className="h-64 w-full" />}
           {query.error && (
             <Alert variant="destructive">
-              <AlertTitle>Não foi possível abrir os detalhes</AlertTitle>
+              <AlertTitle>{t("detailsError")}</AlertTitle>
               <AlertDescription>
                 <Button onClick={() => void query.refetch()}>
-                  Tentar novamente
+                  {t("retry")}
                 </Button>
               </AlertDescription>
             </Alert>
@@ -1124,20 +1131,22 @@ function ReconciliationDetails({
           {query.data && (
             <>
               <section className="flex flex-col gap-2">
-                <h3 className="font-semibold">Arquivo e linha originais</h3>
+                <h3 className="font-semibold">{t("originalFileRow")}</h3>
                 <p>
                   {query.data.source.filename || query.data.source.object_ref}
                 </p>
                 <p className="text-sm">
-                  Linha: {query.data.source.locator} · versão:{" "}
-                  {query.data.source.source_version}
+                  {t("sourceVersion", {
+                    row: query.data.source.locator,
+                    version: query.data.source.source_version,
+                  })}
                 </p>
                 {query.data.source.ingestion_id && (
                   <Button asChild variant="outline">
                     <a
                       href={`/api/imports/${query.data.source.ingestion_id}/file`}
                     >
-                      Baixar arquivo original
+                      {t("downloadOriginal")}
                     </a>
                   </Button>
                 )}
@@ -1146,39 +1155,76 @@ function ReconciliationDetails({
                 </pre>
               </section>
               <section>
-                <h3 className="mb-2 font-semibold">Campos normalizados</h3>
+                <h3 className="mb-2 font-semibold">{t("normalizedFields")}</h3>
                 <dl className="flex flex-col gap-2 text-sm">
                   {Object.entries(query.data.normalized).map(([key, value]) => (
                     <div key={key}>
-                      <dt className="text-muted-foreground">{key}</dt>
+                      <dt className="text-muted-foreground">
+                        {t.has(`fields.${key}`) ? t(`fields.${key}`) : key}
+                      </dt>
                       <dd className="break-all">
-                        {value === null ? "Não informado" : String(value)}
+                        {value === null
+                          ? t("notProvided")
+                          : typeof value === "number"
+                            ? format.number(value)
+                            : typeof value === "string" &&
+                                [
+                                  "direction",
+                                  "status",
+                                  "observation_state",
+                                ].includes(key) &&
+                                t.has(`values.${value}`)
+                              ? t(`values.${value}`)
+                              : typeof value === "string" &&
+                                  [
+                                    "booking_date",
+                                    "value_date",
+                                    "issued_on",
+                                    "due_on",
+                                  ].includes(key)
+                                ? format.dateTime(
+                                    new Date(`${value.slice(0, 10)}T00:00:00Z`),
+                                    { dateStyle: "short", timeZone: "UTC" },
+                                  )
+                                : String(value)}
                       </dd>
                     </div>
                   ))}
                 </dl>
               </section>
               <section>
-                <h3 className="mb-2 font-semibold">Histórico de decisões</h3>
+                <h3 className="mb-2 font-semibold">{t("decisionHistory")}</h3>
                 {query.data.history.length ? (
                   <ol className="flex flex-col gap-4 text-sm">
                     {query.data.history.map((item) => (
                       <li key={item.id}>
-                        <p>{item.rationale}</p>
+                        <p>{translateMessage(item.rationale)}</p>
                         <p className="text-xs text-muted-foreground">
-                          {new Date(item.created_at).toLocaleString("pt-BR")} ·
-                          autor {item.actor_id}
+                          {t("author", {
+                            date: format.dateTime(new Date(item.created_at), {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                              timeZone: "UTC",
+                            }),
+                            id: item.actor_id,
+                          })}
                         </p>
                         {item.review && (
                           <p>
                             {item.review === "confirmed"
-                              ? "Confirmada"
-                              : "Rejeitada"}{" "}
-                            · revisor {item.reviewer_id} ·{" "}
+                              ? t("confirmed")
+                              : t("rejected")}{" "}
+                            ·{" "}
+                            {t("reviewer", {
+                              id: item.reviewer_id ?? t("notProvided"),
+                            })}{" "}
+                            ·{" "}
                             {item.reviewed_at &&
-                              new Date(item.reviewed_at).toLocaleString(
-                                "pt-BR",
-                              )}
+                              format.dateTime(new Date(item.reviewed_at), {
+                                dateStyle: "short",
+                                timeStyle: "short",
+                                timeZone: "UTC",
+                              })}
                           </p>
                         )}
                       </li>
@@ -1186,7 +1232,7 @@ function ReconciliationDetails({
                   </ol>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    Nenhuma decisão registrada.
+                    {t("noDecisions")}
                   </p>
                 )}
               </section>

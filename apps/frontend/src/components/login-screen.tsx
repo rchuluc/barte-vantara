@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
+import { LocaleSelector } from "@/components/locale-selector";
 import { ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useSignin } from "@/hooks/use-workspace";
 import { useTenant } from "@/components/workspace-provider";
@@ -10,13 +12,14 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { RequestError } from "@/components/request-feedback";
 
 export function LoginScreen() {
+  const t = useTranslations("login");
   const tenant = useTenant();
   const signin = useSignin();
   const [showPassword, setShowPassword] = useState(false);
   const [requiresNewPassword, setRequiresNewPassword] = useState(false);
 
   return (
-    <main className="login-grid min-h-dvh">
+    <main className="login-grid relative min-h-dvh">
       <section className="brand-panel flex flex-col justify-between gap-12 p-8 lg:p-16">
         <p className="text-2xl font-semibold tracking-tight">
           {tenant.name}
@@ -24,34 +27,31 @@ export function LoginScreen() {
         </p>
         <div className="hidden max-w-lg flex-col gap-6 lg:flex">
           <p className="text-sm font-medium uppercase tracking-widest">
-            Your workspace, connected
+            {t("connected")}
           </p>
           <p className="text-4xl leading-tight font-medium tracking-tight lg:text-6xl">
-            A clear view.
-            <br />A confident next step.
+            {t("headline")}
+            <br />
+            {t("nextStep")}
           </p>
-          <p className="max-w-sm text-lg leading-relaxed">
-            One place for your team, your access, and the work ahead.
-          </p>
+          <p className="max-w-sm text-lg leading-relaxed">{t("description")}</p>
         </div>
         <p className="hidden items-center gap-2 text-sm lg:flex">
-          <ShieldCheck className="size-4" aria-hidden="true" /> Private access
-          to {tenant.name}
+          <ShieldCheck className="size-4" aria-hidden="true" />
+          {t("privateAccess", { name: tenant.name })}
         </p>
       </section>
-      <section className="flex items-center justify-center px-6 py-12 lg:p-16">
+      <section className="flex items-center justify-center px-6 pt-12 pb-32 lg:px-16 lg:pt-16">
         <div className="flex w-full max-w-sm flex-col gap-8">
           <header className="flex flex-col gap-3">
             <p className="text-sm text-muted-foreground">
-              {tenant.name} workspace
+              {t("workspace", { name: tenant.name })}
             </p>
             <h1 className="text-3xl font-semibold tracking-tight">
-              {requiresNewPassword ? "Set your password" : "Welcome back"}
+              {requiresNewPassword ? t("setPassword") : t("welcome")}
             </h1>
             <p className="text-muted-foreground">
-              {requiresNewPassword
-                ? "Replace your temporary password to activate your account."
-                : "Sign in with your work account to continue."}
+              {requiresNewPassword ? t("replacePassword") : t("continue")}
             </p>
           </header>
           <form
@@ -78,7 +78,7 @@ export function LoginScreen() {
             <FieldGroup>
               {!requiresNewPassword && (
                 <Field>
-                  <FieldLabel htmlFor="email">Work email</FieldLabel>
+                  <FieldLabel htmlFor="email">{t("email")}</FieldLabel>
                   <Input
                     id="email"
                     name="email"
@@ -91,7 +91,7 @@ export function LoginScreen() {
               )}
               <Field>
                 <FieldLabel htmlFor="password">
-                  {requiresNewPassword ? "New password" : "Password"}
+                  {requiresNewPassword ? t("newPassword") : t("password")}
                 </FieldLabel>
                 <div className="relative">
                   <Input
@@ -113,7 +113,7 @@ export function LoginScreen() {
                     size="icon"
                     className="absolute top-0 right-0 size-11 hover:bg-transparent hover:text-current dark:hover:bg-transparent"
                     aria-label={
-                      showPassword ? "Hide password" : "Show password"
+                      showPassword ? t("hidePassword") : t("showPassword")
                     }
                     aria-controls="password"
                     aria-pressed={showPassword}
@@ -128,8 +128,7 @@ export function LoginScreen() {
                 </div>
                 {requiresNewPassword && (
                   <p className="text-sm text-muted-foreground">
-                    Use at least 8 characters, including uppercase, lowercase, a
-                    number and a symbol.
+                    {t("passwordHint")}
                   </p>
                 )}
               </Field>
@@ -137,10 +136,10 @@ export function LoginScreen() {
             {signin.error && <RequestError error={signin.error} />}
             <Button type="submit" disabled={signin.isPending}>
               {signin.isPending
-                ? "Signing in…"
+                ? t("signingIn")
                 : requiresNewPassword
-                  ? "Set password and sign in"
-                  : "Sign in"}
+                  ? t("setAndSignIn")
+                  : t("signIn")}
               <ArrowRight data-icon="inline-end" aria-hidden="true" />
             </Button>
             {requiresNewPassword && (
@@ -153,16 +152,18 @@ export function LoginScreen() {
                   signin.reset();
                 }}
               >
-                Back to sign in
+                {t("back")}
               </Button>
             )}
           </form>
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Need an account or help signing in? Contact your workspace
-            administrator.
+            {t("help")}
           </p>
         </div>
       </section>
+      <div className="absolute right-6 bottom-6 w-52">
+        <LocaleSelector />
+      </div>
     </main>
   );
 }

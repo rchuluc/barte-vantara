@@ -1,8 +1,15 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen } from "./render";
+import { createTranslator } from "next-intl";
+import messages from "../messages/en.json";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
 import { getGreeting } from "@/services/greeting";
 import { GET } from "@/app/api/health/route";
+
+vi.mock("next-intl/server", () => ({
+  getTranslations: async (namespace: "home") =>
+    createTranslator({ locale: "en", messages, namespace }),
+}));
 
 afterEach(() => {
   vi.unstubAllGlobals();

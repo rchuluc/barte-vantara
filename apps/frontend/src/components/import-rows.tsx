@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useFormatter, useTranslations } from "next-intl";
+import { useServerMessage } from "@/i18n/server-messages";
 import { useImportRows, useImportAction } from "@/hooks/use-imports";
 import type { ImportJob, ImportRow } from "@/lib/import-contracts";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,9 @@ import {
 import { Loading, RequestError } from "@/components/request-feedback";
 
 function CorrectRow({ job, row }: { job: ImportJob; row: ImportRow }) {
+  const translateMessage = useServerMessage();
+  const t = useTranslations("imports");
+  const c = useTranslations("ui");
   const [open, setOpen] = useState(false);
   const [cells, setCells] = useState<string[]>([]);
   const action = useImportAction(job.id);
@@ -49,15 +54,18 @@ function CorrectRow({ job, row }: { job: ImportJob; row: ImportRow }) {
     >
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
-          Correct row {row.row_number}
+          {t("correctRow", { number: row.row_number })}
         </Button>
       </DialogTrigger>
       <DialogContent className="import-workspace max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Correct row {row.row_number}</DialogTitle>
+          <DialogTitle>
+            {t("correctRow", { number: row.row_number })}
+          </DialogTitle>
           <DialogDescription>
-            {row.error ??
-              "Edit the source values and return this row to the processing queue."}
+            {row.error
+              ? translateMessage(row.error)
+              : t("correctRowDescription")}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -98,10 +106,10 @@ function CorrectRow({ job, row }: { job: ImportJob; row: ImportRow }) {
               disabled={action.isPending}
               onClick={() => setOpen(false)}
             >
-              Cancel
+              {c("cancel")}
             </Button>
             <Button disabled={action.isPending}>
-              {action.isPending ? "Saving…" : "Save correction"}
+              {action.isPending ? c("saving") : t("saveCorrection")}
             </Button>
           </DialogFooter>
         </form>
@@ -111,6 +119,10 @@ function CorrectRow({ job, row }: { job: ImportJob; row: ImportRow }) {
 }
 
 export function ImportRows({ job }: { job: ImportJob }) {
+  const translateMessage = useServerMessage();
+  const t = useTranslations("imports");
+  const c = useTranslations("ui");
+  const format = useFormatter();
   const [cursors, setCursors] = useState([0]);
   const rows = useImportRows(job.id, cursors[cursors.length - 1]);
 
@@ -121,11 +133,10 @@ export function ImportRows({ job }: { job: ImportJob }) {
     >
       <div>
         <h2 id="rows-heading" className="text-xl font-semibold">
-          Source records
+          {t("sourceRecords")}
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Inspect source values and correct rejected records. Saved corrections
-          are imported automatically.
+          {t("sourceRecordsDescription")}
         </p>
       </div>
       {rows.error ? (
@@ -142,24 +153,27 @@ export function ImportRows({ job }: { job: ImportJob }) {
           <Table>
             <TableCaption>
               {rows.data.length
-                ? `Page ${cursors.length} · ${rows.data.length} records`
-                : "No records on this page."}
+                ? c("pageRecords", {
+                    page: cursors.length,
+                    count: rows.data.length,
+                  })
+                : t("noRows")}
             </TableCaption>
             <TableHeader>
               <TableRow>
-                <TableHead>Row</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>{t("row")}</TableHead>
+                <TableHead>{c("status")}</TableHead>
                 {job.headers.map((header) => (
                   <TableHead key={header}>{header}</TableHead>
                 ))}
-                <TableHead>Review</TableHead>
+                <TableHead>{t("review")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.data.map((row) => (
                 <TableRow key={row.row_number}>
                   <TableCell className="tabular-nums">
-                    {row.row_number}
+                    {format.number(row.row_number)}
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -167,7 +181,7 @@ export function ImportRows({ job }: { job: ImportJob }) {
                         row.state === "rejected" ? "destructive" : "secondary"
                       }
                     >
-                      {row.state}
+                      {t(`states.${row.state}`)}
                     </Badge>
                   </TableCell>
                   {job.headers.map((header, index) => (
@@ -180,14 +194,16 @@ export function ImportRows({ job }: { job: ImportJob }) {
                   <TableCell>
                     <div className="flex max-w-xs flex-col gap-2 whitespace-normal">
                       {row.error && (
-                        <p className="text-sm text-destructive">{row.error}</p>
+                        <p className="text-sm text-destructive">
+                          {translateMessage(row.error)}
+                        </p>
                       )}
                       {row.state === "rejected" && (
                         <CorrectRow job={job} row={row} />
                       )}
                       {row.result_id && (
                         <span className="text-xs break-all text-muted-foreground">
-                          Record: {row.result_id}
+                          {t("record", { id: row.result_id })}
                         </span>
                       )}
                     </div>
@@ -202,7 +218,7 @@ export function ImportRows({ job }: { job: ImportJob }) {
               disabled={cursors.length === 1 || rows.isFetching}
               onClick={() => setCursors(cursors.slice(0, -1))}
             >
-              Previous records
+              {t("previousRecords")}
             </Button>
             <Button
               variant="outline"
@@ -214,7 +230,7 @@ export function ImportRows({ job }: { job: ImportJob }) {
                 ])
               }
             >
-              Next records
+              {t("nextRecords")}
             </Button>
           </div>
         </>

@@ -27,6 +27,36 @@ availability so a backend outage does not restart every frontend task.
 Tenants are selected only by hostname. Open `http://vantara.localhost:3217/login`
 for the seeded workspace. Tenant-prefixed browser paths are rejected.
 
+## Internationalization
+
+`next-intl` provides `pt-BR` (Brazilian Portuguese, the default), `en` (English),
+and `es` (Spanish). The language selector is available on the workspace picker,
+sign-in page, and workspace sidebar. The explicit choice is stored for one year
+in the host-only `vantara-locale` cookie; it is a browser preference, not an
+account setting synchronized across devices. Missing or unsupported values fall
+back to `pt-BR`, regardless of the browser's language.
+
+`src/i18n/request.ts` loads the selected catalog from `messages/`. The root layout
+sets the document language and supplies the same messages to client components.
+The server action validates choices and updates the cookie, which makes Next.js
+render the updated locale while preserving client state. Locale selection does
+not add URL prefixes or change hostname-based tenant routing.
+
+All pages, dialogs, validation, import-assistant controls, reconciliation details,
+and shared feedback use the catalogs. Known application-generated API messages
+are localized; original source values and arbitrary user text are preserved.
+Dates use UTC and numbers/currencies use the selected locale. The import assistant
+receives the selected language in its system prompt. The sign-in selector stays
+in the bottom-right corner.
+
+For new translations, add the same namespaced keys to all three catalogs;
+use `useTranslations` in client components and `getTranslations` in server
+components. Use ICU variables for names/counts rather than concatenating messages.
+`tests/i18n.test.tsx` checks all catalogs, fallback behavior, persistence, selector
+failures, and rendering in each language. `tests/i18n-pages.test.tsx` exercises
+localized feature pages and dialogs. The shared test provider supports all three
+locales; reconciliation behavioral tests explicitly select Portuguese.
+
 ## Tenants and branding
 
 Every environment reads persisted branding from backend `GET /api/tenants`.

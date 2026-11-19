@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { Plus, Users } from "lucide-react";
 import {
@@ -17,6 +18,7 @@ import { UserEditor } from "@/components/user-editor";
 import { Loading, RequestError } from "@/components/request-feedback";
 
 export function UsersScreen() {
+  const t = useTranslations("ui");
   const me = useMe();
 
   if (me.error)
@@ -32,11 +34,8 @@ export function UsersScreen() {
   if (!me.data.permissions.includes("configure"))
     return (
       <Alert variant="destructive">
-        <AlertTitle>Administrator access required</AlertTitle>
-        <AlertDescription>
-          Your account cannot manage users. Contact your workspace
-          administrator.
-        </AlertDescription>
+        <AlertTitle>{t("adminRequired")}</AlertTitle>
+        <AlertDescription>{t("cannotManageUsersContact")}</AlertDescription>
       </Alert>
     );
 
@@ -44,6 +43,7 @@ export function UsersScreen() {
 }
 
 function UserManagement({ actorId }: { actorId: string }) {
+  const t = useTranslations("ui");
   const [offset, setOffset] = useState(0);
   const [editor, setEditor] = useState<User | null>(null);
   const [confirmation, setConfirmation] = useState<User | null>(null);
@@ -57,38 +57,38 @@ function UserManagement({ actorId }: { actorId: string }) {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="mb-2 text-sm text-muted-foreground">
-            Workspace / Administration
+            {t("administration")}
           </p>
           <h1 className="text-3xl font-semibold tracking-tight">
-            User management
+            {t("userManagement")}
           </h1>
-          <p className="mt-3 text-muted-foreground">
-            Manage the people and permissions in your workspace.
-          </p>
+          <p className="mt-3 text-muted-foreground">{t("usersDescription")}</p>
         </div>
         <Button asChild>
           <Link href="/users/new">
             <Plus data-icon="inline-start" aria-hidden="true" />
-            Add user
+            {t("addUser")}
           </Link>
         </Button>
       </header>
-      {notice && <p role="status">{notice}</p>}
+      {notice && <p role="status">{t(notice)}</p>}
       {editor && (
         <UserEditor
           key={editor.id}
           user={editor}
           close={(saved) => {
             setEditor(null);
-            if (saved) setNotice("User saved.");
+            if (saved) setNotice("userSaved");
           }}
         />
       )}
       {confirmation && (
         <Alert>
-          <AlertTitle>Deactivate {confirmation.email}?</AlertTitle>
+          <AlertTitle>
+            {t("deactivateUserQuestion", { email: confirmation.email })}
+          </AlertTitle>
           <AlertDescription>
-            This removes workspace access. You can reactivate this user later.
+            {t("deactivateDescription")}
             <div className="mt-3 flex flex-wrap gap-3">
               <Button
                 variant="destructive"
@@ -97,21 +97,21 @@ function UserManagement({ actorId }: { actorId: string }) {
                   deactivate.mutate(confirmation.id, {
                     onSuccess: () => {
                       setConfirmation(null);
-                      setNotice("User deactivated.");
+                      setNotice("userDeactivated");
                     },
                   })
                 }
               >
                 {deactivate.isPending
-                  ? "Deactivating…"
-                  : "Confirm deactivation"}
+                  ? t("deactivating")
+                  : t("confirmDeactivation")}
               </Button>
               <Button
                 variant="outline"
                 disabled={deactivate.isPending}
                 onClick={() => setConfirmation(null)}
               >
-                Cancel deactivation
+                {t("cancelDeactivation")}
               </Button>
             </div>
           </AlertDescription>
@@ -133,10 +133,8 @@ function UserManagement({ actorId }: { actorId: string }) {
           {users.data.length === 0 ? (
             <Alert>
               <Users aria-hidden="true" />
-              <AlertTitle>No users on this page</AlertTitle>
-              <AlertDescription>
-                Add a user or return to the previous page.
-              </AlertDescription>
+              <AlertTitle>{t("noUsers")}</AlertTitle>
+              <AlertDescription>{t("noUsersDescription")}</AlertDescription>
             </Alert>
           ) : (
             <ul className="divide-y divide-border rounded-xl border border-border bg-card">
@@ -148,18 +146,20 @@ function UserManagement({ actorId }: { actorId: string }) {
                   <div className="min-w-0 flex-1">
                     <p className="font-medium break-words">
                       {user.display_name || user.email}
-                      {user.id === actorId && " (you)"}
+                      {user.id === actorId && t("youSuffix")}
                     </p>
                     <p className="mt-1 text-sm break-all text-muted-foreground">
                       {user.email}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Badge variant={user.active ? "secondary" : "outline"}>
-                        {user.active ? "Active" : "Inactive"}
+                        {user.active ? t("active") : t("inactive")}
                       </Badge>
                       {user.roles.map((role) => (
                         <Badge key={role} variant="outline">
-                          {role}
+                          {t.has(`rolesList.${role}`)
+                            ? t(`rolesList.${role}`)
+                            : role}
                         </Badge>
                       ))}
                     </div>
@@ -168,10 +168,10 @@ function UserManagement({ actorId }: { actorId: string }) {
                     <Button
                       variant="outline"
                       disabled={user.id === actorId}
-                      aria-label={`Edit ${user.email}`}
+                      aria-label={t("editUserLabel", { email: user.email })}
                       onClick={() => setEditor(user)}
                     >
-                      Edit
+                      {t("edit")}
                     </Button>
                     <Button
                       variant="ghost"
@@ -180,7 +180,12 @@ function UserManagement({ actorId }: { actorId: string }) {
                         save.isPending ||
                         deactivate.isPending
                       }
-                      aria-label={`${user.active ? "Deactivate" : "Reactivate"} ${user.email}`}
+                      aria-label={t(
+                        user.active
+                          ? "deactivateUserLabel"
+                          : "reactivateUserLabel",
+                        { email: user.email },
+                      )}
                       onClick={() => {
                         if (user.active) {
                           deactivate.reset();
@@ -188,11 +193,11 @@ function UserManagement({ actorId }: { actorId: string }) {
                         } else
                           save.mutate(
                             { id: user.id, body: { active: true } },
-                            { onSuccess: () => setNotice("User reactivated.") },
+                            { onSuccess: () => setNotice("userReactivated") },
                           );
                       }}
                     >
-                      {user.active ? "Deactivate" : "Reactivate"}
+                      {user.active ? t("deactivate") : t("reactivate")}
                     </Button>
                   </div>
                 </li>
@@ -200,7 +205,7 @@ function UserManagement({ actorId }: { actorId: string }) {
             </ul>
           )}
           <nav
-            aria-label="User pages"
+            aria-label={t("userPages")}
             className="flex items-center justify-between gap-3"
           >
             <Button
@@ -208,17 +213,17 @@ function UserManagement({ actorId }: { actorId: string }) {
               disabled={offset === 0}
               onClick={() => setOffset(offset - 20)}
             >
-              Previous
+              {t("previous")}
             </Button>
             <span className="text-sm text-muted-foreground">
-              Page {offset / 20 + 1}
+              {t("page", { page: offset / 20 + 1 })}
             </span>
             <Button
               variant="outline"
               disabled={users.data.length < 20}
               onClick={() => setOffset(offset + 20)}
             >
-              Next
+              {t("next")}
             </Button>
           </nav>
         </>

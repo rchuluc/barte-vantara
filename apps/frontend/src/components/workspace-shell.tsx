@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { LocaleSelector } from "@/components/locale-selector";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -21,6 +23,7 @@ import {
 import { Loading, RequestError } from "@/components/request-feedback";
 
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("workspace");
   const tenant = useTenant();
   const me = useMe();
   const logout = useLogout();
@@ -37,7 +40,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           }}
         />
         <Button asChild>
-          <Link href="/login">Return to sign in</Link>
+          <Link href="/login">{t("returnToLogin")}</Link>
         </Button>
       </main>
     );
@@ -45,24 +48,28 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   const admin = me.data.permissions.includes("configure");
   const links = [
-    { path: "dashboard", label: "Overview", icon: LayoutDashboard },
-    { path: "imports", label: "Data imports", icon: FileSpreadsheet },
-    { path: "reconciliation", label: "Conciliação", icon: FileSpreadsheet },
+    { path: "dashboard", label: t("overview"), icon: LayoutDashboard },
+    { path: "imports", label: t("imports"), icon: FileSpreadsheet },
+    {
+      path: "reconciliation",
+      label: t("reconciliation"),
+      icon: FileSpreadsheet,
+    },
     ...(admin
       ? [
-          { path: "business-units", label: "Business units", icon: Building2 },
-          { path: "bank-accounts", label: "Bank accounts", icon: Landmark },
+          { path: "business-units", label: t("units"), icon: Building2 },
+          { path: "bank-accounts", label: t("accounts"), icon: Landmark },
         ]
       : []),
     admin
-      ? { path: "users", label: "User management", icon: Users }
-      : { path: "profile", label: "My profile", icon: UserRound },
+      ? { path: "users", label: t("users"), icon: Users }
+      : { path: "profile", label: t("profile"), icon: UserRound },
   ];
 
   return (
     <div className="workspace-grid h-dvh overflow-hidden">
       <a href="#main-content" className="skip-link">
-        Skip to content
+        {t("skip")}
       </a>
       <aside className="flex min-h-0 flex-col gap-4 overflow-hidden border-b border-border bg-card p-4 lg:border-r lg:border-b-0">
         <Link
@@ -76,9 +83,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </Link>
         <div className="flex flex-col gap-3">
           <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            Workspace
+            {t("label")}
           </p>
-          <nav aria-label="Workspace" className="hidden flex-col gap-1 lg:flex">
+          <nav
+            aria-label={t("label")}
+            className="hidden flex-col gap-1 lg:flex"
+          >
             {links.map(({ path, label, icon: Icon }) => (
               <Button
                 key={path}
@@ -102,7 +112,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="lg:hidden">
             <NativeSelect
-              aria-label="Workspace page"
+              aria-label={t("page")}
               value={
                 links.find(({ path }) => pathname.split("/").includes(path))
                   ?.path ?? "dashboard"
@@ -118,6 +128,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <div className="mt-auto flex flex-col gap-3 border-t border-border pt-3">
+          <LocaleSelector />
           <div className="hidden min-w-0 lg:block">
             <p className="truncate font-medium">
               {me.data.display_name || me.data.email}
@@ -126,7 +137,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               {me.data.email}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              {admin ? "Workspace administrator" : "Workspace member"}
+              {admin ? t("administrator") : t("member")}
             </p>
           </div>
           {logout.error && <RequestError error={logout.error} />}
@@ -137,7 +148,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             onClick={() => logout.mutate()}
           >
             <LogOut data-icon="inline-start" aria-hidden="true" />
-            {logout.isPending ? "Signing out…" : "Sign out"}
+            {logout.isPending ? t("signingOut") : t("signOut")}
           </Button>
         </div>
       </aside>

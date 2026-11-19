@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRoles, useSaveUser } from "@/hooks/use-workspace";
 import { createUserSchema, patchUserSchema, type User } from "@/lib/contracts";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ export function UserEditor({
   user?: User;
   close: (saved?: boolean) => void;
 }) {
+  const t = useTranslations("ui");
   const roles = useRoles();
   const save = useSaveUser();
   const [validation, setValidation] = useState<string>();
@@ -55,9 +57,9 @@ export function UserEditor({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{user ? "Edit user" : "Add user"}</CardTitle>
+        <CardTitle>{user ? t("editUser") : t("addUser")}</CardTitle>
         <CardDescription>
-          {user ? user.email : "Create an account and assign workspace access."}
+          {user ? user.email : t("createUserDescription")}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -82,9 +84,7 @@ export function UserEditor({
                 });
 
             if (!input.success) {
-              setValidation(
-                "Select at least one role and check the account details and access scopes.",
-              );
+              setValidation("userValidation");
               form
                 .querySelector<HTMLInputElement>('input[name="roles"]')
                 ?.focus();
@@ -106,7 +106,7 @@ export function UserEditor({
         >
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="displayName">Display name</FieldLabel>
+              <FieldLabel htmlFor="displayName">{t("displayName")}</FieldLabel>
               <Input
                 id="displayName"
                 name="displayName"
@@ -118,7 +118,7 @@ export function UserEditor({
             {!user && (
               <>
                 <Field>
-                  <FieldLabel htmlFor="new-email">Email address</FieldLabel>
+                  <FieldLabel htmlFor="new-email">{t("email")}</FieldLabel>
                   <Input
                     id="new-email"
                     name="email"
@@ -130,7 +130,7 @@ export function UserEditor({
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="new-password">
-                    Initial password
+                    {t("initialPassword")}
                   </FieldLabel>
                   <Input
                     id="new-password"
@@ -143,17 +143,14 @@ export function UserEditor({
                     required
                   />
                   <FieldDescription id="password-help">
-                    At least 8 characters, including uppercase, lowercase, a
-                    number and a symbol.
+                    {t("passwordHint")}
                   </FieldDescription>
                 </Field>
               </>
             )}
             <FieldSet>
-              <FieldLegend>Roles</FieldLegend>
-              <FieldDescription>
-                Select one or more roles. Admin grants user-management access.
-              </FieldDescription>
+              <FieldLegend>{t("roles")}</FieldLegend>
+              <FieldDescription>{t("rolesHint")}</FieldDescription>
               <div className="grid gap-2 sm:grid-cols-2">
                 {roles.data.map(({ role }) => (
                   <Field key={role} orientation="horizontal">
@@ -169,14 +166,16 @@ export function UserEditor({
                         defaultChecked={user?.roles.includes(role)}
                         className="size-5 accent-primary"
                       />
-                      {role}
+                      {t.has(`rolesList.${role}`)
+                        ? t(`rolesList.${role}`)
+                        : role}
                     </FieldLabel>
                   </Field>
                 ))}
               </div>
             </FieldSet>
             <Field>
-              <FieldLabel htmlFor="unitIds">Business units</FieldLabel>
+              <FieldLabel htmlFor="unitIds">{t("businessUnits")}</FieldLabel>
               <BusinessUnitCombobox
                 id="unitIds"
                 multiple
@@ -188,12 +187,13 @@ export function UserEditor({
                 }}
               />
               <FieldDescription id="unit-help">
-                Select one or more units. Changing units clears selected bank
-                accounts.
+                {t("unitsHint")}
               </FieldDescription>
             </Field>
             <Field>
-              <FieldLabel htmlFor="bankAccountIds">Bank accounts</FieldLabel>
+              <FieldLabel htmlFor="bankAccountIds">
+                {t("bankAccounts")}
+              </FieldLabel>
               <BankAccountCombobox
                 id="bankAccountIds"
                 multiple
@@ -203,20 +203,19 @@ export function UserEditor({
                 disabled={save.isPending || !unitIds.length}
               />
               <FieldDescription id="account-help">
-                Only accounts in your scope can be assigned. Removing units may
-                require clearing dependent approval scopes first.
+                {t("accountsHint")}
               </FieldDescription>
             </Field>
           </FieldGroup>
           {validation && (
             <p role="alert" className="text-sm text-destructive">
-              {validation}
+              {t(validation)}
             </p>
           )}
           {save.error && <RequestError error={save.error} />}
           <div className="flex flex-wrap gap-3">
             <Button type="submit" disabled={save.isPending}>
-              {save.isPending ? "Saving…" : "Save user"}
+              {save.isPending ? t("saving") : t("saveUser")}
             </Button>
             <Button
               type="button"
@@ -224,7 +223,7 @@ export function UserEditor({
               disabled={save.isPending}
               onClick={() => close()}
             >
-              Cancel
+              {t("cancel")}
             </Button>
           </div>
         </form>
