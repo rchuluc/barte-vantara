@@ -28,7 +28,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-resource-server")
     implementation("org.springframework.boot:spring-boot-starter-validation")
-    implementation(platform("software.amazon.awssdk:bom:2.57.3"))
+    implementation(platform("software.amazon.awssdk:bom:2.59.2"))
     implementation("software.amazon.awssdk:cognitoidentityprovider") {
         exclude(group = "software.amazon.awssdk", module = "apache5-client")
         exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
