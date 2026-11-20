@@ -39,7 +39,7 @@ dependencies {
         exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
     }
     implementation("org.apache.commons:commons-csv:1.14.1")
-    implementation("org.apache.poi:poi-ooxml:5.5.1")
+    implementation("org.apache.poi:poi-ooxml:6.0.0")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("tools.jackson.module:jackson-module-kotlin")
